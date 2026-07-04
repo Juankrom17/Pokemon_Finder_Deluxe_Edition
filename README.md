@@ -1,1 +1,1 @@
-Descargar Tesseract-OCR para el correcto funcionamiento del prorama
+Descargar Tesseract-OCR para el correcto funcionamiento del programa
