@@ -17,7 +17,7 @@ import subprocess
 REPO_OWNER = "Juankrom17"  # <-- PONÉ TU USUARIO DE GITHUB ACÁ
 REPO_NAME = "Pokemon_Finder_Deluxe_Edition"     # <-- PONÉ EL NOMBRE DE TU REPO ACÁ
 # ------------------------------------
-
+#buep
 try:
     from PIL import Image, ImageTk, ImageOps
     PIL_AVAILABLE = True
