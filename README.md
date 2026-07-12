@@ -7,7 +7,7 @@
       <p>To ensure proper screen scanning and system library management, this program requires Administrator privileges to run. The software will automatically request these permissions upon startup.</p>
       <ul>
         <li><b>Tesseract OCR:</b> The program automatically checks for its presence on the computer. If it is not found, it provides an option to download and install it in an automated manner.</li>
-        <li></li>
+        </li>
       </ul>
     </td>
     <td width="50%" valign="top">
