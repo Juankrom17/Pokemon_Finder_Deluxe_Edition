@@ -1,36 +1,30 @@
-name: 🔨 Compilar Pokefinder
+name: Compilar Pokefinder
 
 on:
   push:
     branches:
       - develop
-
   release:
     types: [published]
 
 jobs:
   build-windows:
-    name: Compilar .exe en Windows
     runs-on: windows-latest
 
     steps:
-      - name: 📥 Descargar código
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 🐍 Instalar Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 📦 Instalar dependencias
-        run: |
-          pip install pyinstaller pillow mss pytesseract
+      - name: Instalar dependencias
+        run: pip install pyinstaller pillow mss pytesseract
 
-      - name: 🔨 Compilar .exe
-        run: |
-          pyinstaller --onefile --windowed --name "Pokefinder" Pokefinder.py
+      - name: Compilar exe
+        run: pyinstaller --onefile --windowed --name "Pokefinder" --icon=icono.ico Pokefinder.py
 
-      - name: 📎 Subir artifact (solo en develop)
+      - name: Subir artifact (develop)
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
@@ -38,7 +32,7 @@ jobs:
           path: dist/Pokefinder.exe
           retention-days: 7
 
-      - name: 🚀 Subir .exe a la Release
+      - name: Subir exe a Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
