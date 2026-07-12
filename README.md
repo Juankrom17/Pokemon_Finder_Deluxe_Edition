@@ -1,4 +1,4 @@
-# Pokémon Finder Deluxe
+# Pokémon Finder 
 
 <table width="100%">
   <tr>
