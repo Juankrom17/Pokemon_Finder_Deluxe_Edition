@@ -1,12 +1,10 @@
 name: 🔨 Compilar Pokefinder
 
 on:
-  # Se activa cuando hacés push a la rama develop (para probar)
   push:
     branches:
       - develop
 
-  # Se activa cuando publicás una Release oficial
   release:
     types: [published]
 
@@ -32,8 +30,6 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name "Pokefinder" Pokefinder.py
 
-      # Cuando hacés push a develop → sube el .exe como "artifact" descargable
-      # (no es una release, solo para que vos lo pruebes)
       - name: 📎 Subir artifact (solo en develop)
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
@@ -42,7 +38,6 @@ jobs:
           path: dist/Pokefinder.exe
           retention-days: 7
 
-      # Cuando publicás una Release → sube el .exe directo a la release
       - name: 🚀 Subir .exe a la Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
