@@ -356,16 +356,11 @@ class PokemonFinderNLP:
             
             # 2. Preparamos el script de actualización con el Bucle de Espera
             # 2. Preparamos el script de actualización con el Bucle de Espera
+            # 2. Preparamos el script de actualización con el Bucle de Espera
             bat_path = os.path.join(os.path.dirname(exe_path), "update.bat")
             exe_name = os.path.basename(exe_path)
             
             bat_content = f"""@echo off
-:: FORZAR LIMPIEZA DE VARIABLES DE PYINSTALLER
-set _MEIPASS2=
-set _MEIPASS=
-set TCL_LIBRARY=
-set TK_LIBRARY=
-
 :WaitLoop
 timeout /t 1 /nobreak > NUL
 del "{exe_path}"
@@ -373,7 +368,9 @@ if exist "{exe_path}" goto WaitLoop
 
 ren "{new_exe_path}" "{exe_name}"
 timeout /t 1 /nobreak > NUL
-start "" "{exe_path}"
+
+:: Usamos PowerShell para limpiar quirúrgicamente el PATH y las variables de PyInstaller antes de arrancar
+powershell -NoProfile -Command "$env:PATH = ($env:PATH -split ';' | Where-Object {{ $_ -notlike '*_MEI*' }}) -join ';'; Remove-Item Env:\_MEI* -ErrorAction SilentlyContinue; Start-Process '{exe_path}'"
 del "%~f0"
 """
             with open(bat_path, "w") as f:
