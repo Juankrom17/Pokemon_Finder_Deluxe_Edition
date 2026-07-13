@@ -358,62 +358,48 @@ class PokemonFinderNLP:
             # 2. Preparamos el script de actualización con el Bucle de Espera
             # 2. Preparamos el script de actualización con el Bucle de Espera
             # Preparamos el script de actualización inteligente
+            # 1. Creamos un .bat súper simple (ya no necesita comandos complejos)
             bat_path = os.path.join(os.path.dirname(exe_path), "update.bat")
             exe_name = os.path.basename(exe_path)
             
             bat_content = f"""@echo off
-:: 1. Le damos 2 segundos de ventaja al programa para que empiece a cerrarse
-timeout /t 2 /nobreak > NUL
-
-:: 2. Bucle inteligente: Preguntamos a Windows si el proceso viejo sigue existiendo
-:WaitForDeath
-tasklist /FI "IMAGENAME eq {exe_name}" 2>NUL | find /I /N "{exe_name}">NUL
-if "%ERRORLEVEL%"=="0" (
-    timeout /t 1 /nobreak > NUL
-    goto WaitForDeath
-)
-
-:: 3. Si llegamos acá, el programa viejo ya no existe en la memoria RAM. Es seguro borrar.
+:WaitLoop
+timeout /t 1 /nobreak > NUL
 del "{exe_path}"
+if exist "{exe_path}" goto WaitLoop
+
 ren "{new_exe_path}" "{exe_name}"
-
-:: 4. Limpiamos el entorno para que la nueva versión arranque fresca
-set _MEIPASS2=
-set _MEIPASS=
-set TCL_LIBRARY=
-set TK_LIBRARY=
-
 start "" "{exe_path}"
 del "%~f0"
 """
             with open(bat_path, "w") as f:
                 f.write(bat_content)
-                
-            # 3. Limpiamos las variables de entorno de PyInstaller para evitar el error de DLL
-            # 3. Limpiamos las variables de entorno de PyInstaller para evitar el error de DLL
-            env = os.environ.copy()
+
+            # 2. LA MAGIA: Purificamos el entorno (ADN) de Windows en Python
+            clean_env = os.environ.copy()
             
-            for key in list(env.keys()):
-                if '_MEI' in key.upper():
-                    env.pop(key, None)
-                    
-            env.pop('TCL_LIBRARY', None)
-            env.pop('TK_LIBRARY', None)
+            # Borramos los rastros de PyInstaller
+            clean_env.pop('_MEIPASS2', None)
+            clean_env.pop('_MEIPASS', None)
+            clean_env.pop('TCL_LIBRARY', None)
+            clean_env.pop('TK_LIBRARY', None)
             
-            # Limpiamos el PATH de cualquier rastro de la carpeta temporal vieja
-            if 'PATH' in env:
-                paths = env['PATH'].split(os.pathsep)
-                clean_paths = [p for p in paths if not ('_MEI' in p.upper())]
-                env['PATH'] = os.pathsep.join(clean_paths)
-                
-            # 4. Lanzamos el .bat de forma invisible con el entorno limpio
-            subprocess.Popen([bat_path], shell=True, creationflags=subprocess.CREATE_NO_WINDOW, env=env)
-            
-            # 5. Salimos de forma limpia para que PyInstaller borre los temporales
-            try:
-                self.root.destroy()
-            except:
-                pass
+            # Limpiamos el PATH de carpetas temporales viejas
+            if 'PATH' in clean_env:
+                paths = clean_env['PATH'].split(os.pathsep)
+                clean_paths = [p for p in paths if '_MEI' not in p]
+                clean_env['PATH'] = os.pathsep.join(clean_paths)
+
+            # 3. Lanzamos el .bat totalmente desconectado del programa actual
+            DETACHED_PROCESS = 0x00000008
+            subprocess.Popen(
+                bat_path,
+                creationflags=DETACHED_PROCESS,
+                env=clean_env,
+                shell=True
+            )
+
+            # 4. Cerramos el programa al instante
             os._exit(0)
             
         except Exception as e:
