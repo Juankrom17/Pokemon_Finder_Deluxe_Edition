@@ -1,51 +1,54 @@
-# Pokemon Finder Deluxe
+# Pokémon Finder
 
 <table width="100%">
   <tr>
     <td width="50%" valign="top">
-      <h3>IMPORTANTE</h3>
-      <p>Descargar Tesseract-OCR para el correcto funcionamiento del programa.<br>
-      <a href="https://github.com/UB-Mannheim/tesseract/wiki">Link de descarga de Tesseract-OCR</a></p>
+      <h3>System Requirements</h3>
+      <p>To ensure proper screen scanning and system library management, this program requires Administrator privileges to run. The software will automatically request these permissions upon startup.</p>
       <ul>
-        <li>El .EXE tiene que estar en la misma carpeta que el Tesseract-OCR y el icono.png.</li>
-        <li>La carpeta de tesseract tiene que llamarse si o si "Tesseract-OCR".</li>
+        <li><b>Tesseract OCR:</b> The program automatically checks for its presence on the computer. If it is not found, it provides an option to download and install it in an automated manner.</li>
+        </li>
       </ul>
     </td>
     <td width="50%" valign="top">
-      <h3>De qué se trata</h3>
-      <p>Pokemon Finder Deluxe es una herramienta que armamos para escanear tu pantalla (viene bárbaro si estás jugando en un emulador o un juego de PC). Lo que hace es leer los textos del juego, reconocer los nombres de los Pokémon automáticamente y abrirte la información detallada directo en tu navegador.</p>
-      <p>Tiene un sistema inteligente que va aprendiendo de sus propios errores y te deja configurar varias zonas de lectura en la pantalla, adaptándose a la interfaz de cualquier juego.</p>
+      <h3>Project Description</h3>
+      <p>Pokémon Finder Deluxe is an application designed to scan specific areas of the screen while playing on emulators or native PC titles. Its main function is to extract text from dialogue boxes, automatically identify Pokémon names using natural language processing, and open detailed information for each species directly in your default web browser.</p>
+      <p>The system features a multi-contrast image processing engine and connects to updated databases, allowing it to adapt to different fonts, resolutions, and game interfaces.</p>
     </td>
   </tr>
 </table>
 
 ---
 
-## Cómo usar el programa
+## Instructions for Use
 
-### 1. Marcar dónde leer (usando F8)
-Para que el programa sepa dónde tiene que mirar, primero le tenés que marcar la zona de los diálogos:
-* Abrí el juego y dejalo a la vista.
-* Tocá la tecla F8 (o dale clic al botón de "Nueva caja de diálogo" en el menú).
-* Vas a ver que la pantalla se oscurece un poco. Ahí hacé clic y arrastrá el mouse para dibujar un rectángulo justo arriba de la caja de texto del juego.
-* Cuando sueltes el clic, te va a pedir que toques una tecla (puede ser la Q, el 1, F4, la que te quede más cómoda). Esa va a ser tu tecla rápida de captura para esa zona.
-* Podés repetir esto las veces que quieras si el juego tiene textos en distintos lados.
+### 1. Configuring Reading Zones
+Before capturing any text, you need to define which areas of the screen the program should analyze:
+* Start your game and make sure the window is visible.
+* Press the F8 key or click the button to add a new dialogue box in the main menu.
+* The screen will dim slightly. Click and drag the cursor to draw a rectangle over the section where the game texts or dialogues appear.
+* Upon releasing the click, the program will prompt you to press a key (for example: Q, 1, or F4) to associate it with that specific zone.
 
-### 2. Capturar y buscar automáticamente
-* Una vez que marcaste las zonas, podés minimizar el programa y ponerte a jugar tranquilo.
-* Cuando veas que aparece el nombre de un Pokémon, simplemente tocá la tecla que elegiste en el paso anterior.
-* El programa saca una captura invisible, lee el texto, se da cuenta de qué Pokémon es y te abre la ficha en tu navegador web de forma automática.
+### 2. Capture and Information Retrieval
+* Once the zones are configured, you can minimize the application interface and play normally.
+* When a text containing a Pokémon's name appears in the game, press the key you assigned in the previous step.
+* The program will take an internal capture of that sector, process the text invisibly, and open the corresponding tab in Pokémon Database.
+* The main interface features a preview box that allows you to verify the last capture taken.
 
-### 3. El programa aprende de sus errores
-A veces, la letra del juego es rara o el fondo confunde a la cámara. Por eso el sistema está preparado para que lo corrijas:
-* **Si duda:** Si el programa lee algo raro y no sabe si es, por ejemplo, "Mew" o "Mewtwo", te va a saltar una ventanita preguntando cuál es el correcto. Vos elegís y ya se lo guarda para la próxima vez.
-* **Corregir a mano:** Si se equivocó de Pokémon o directamente no detectó nada, andá al programa y tocá en "Corregir Última Captura". Ahí le escribís el nombre correcto y el sistema asocia esa lectura fallida con el Pokémon real, así no le vuelve a pasar.
-* **Revisar la memoria:** En la opción de "Gestionar Decisiones Aprendidas" podés ver, editar o borrar todas las correcciones manuales que le fuiste enseñando con el tiempo.
+### 3. Correction and Learning System
+The reading system is designed to mitigate errors caused by complex typography, pixelated fonts, or backgrounds with visual noise:
+* **Resolving Ambiguities:** If the reading engine detects more than one potential name in the same text, it will display a pop-up window so the user can select the correct option. The program will remember this decision for future analyses.
+* **Associating Erroneous Texts:** If the scan returns corrupted characters or an incorrect name, you can use the option to correct the last capture. By entering the actual name, the software will permanently link that faulty reading to the correct Pokémon.
+* **Memory Management:** The option to manage learned decisions allows you to review, modify, or delete the history of accumulated corrections.
 
 ---
 
-## Detalles que suman
+## Technical Features
 
-* **Funciona de fondo:** El programa detecta las teclas que tocás aunque estés jugando a pantalla completa. No hace falta que tengas la ventana del buscador activa.
-* **Se actualiza solo:** Si hay una versión nueva publicada en GitHub, el programa te avisa y se baja la actualización de forma automática, sin que pierdas tus configuraciones ni tus zonas guardadas.
-* **No se olvida de nada:** Todas las zonas que armás y las correcciones que le enseñás quedan guardadas en tu compu. Cuando lo vuelvas a abrir, ya está todo listo para usar.
+* **Background Detection:** The program responds to the configured capture keys even if the game is in full screen or if the application window is minimized.
+* **Automated Updates:** Upon startup, the program checks if there is a newer version available on GitHub. If a new executable is found, it offers the option to download and replace the previous one automatically, preserving user configurations.
+* **Data Persistence:** Zone coordinates and text corrections are stored locally in JSON format files, ensuring that the information remains available at every launch.
+* **Adaptive Network Mode:** The software attempts to connect to the official Pokémon API to keep its database up to date. If it does not detect an active internet connection, it automatically switches to a local mode to operate offline.
+
+---
+Developed by Juan Esteban Kromberger and Gino Laprovida.
