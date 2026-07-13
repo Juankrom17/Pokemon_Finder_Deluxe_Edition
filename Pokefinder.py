@@ -373,9 +373,13 @@ del "%~f0"
                 f.write(bat_content)
                 
             # 3. Limpiamos las variables de entorno de PyInstaller para evitar el error de DLL
-            env = dict(os.environ)
-            env.pop('_MEIPASS2', None)
-            env.pop('_MEIPASS', None)
+            # 3. Limpiamos las variables de entorno de PyInstaller para evitar el error de DLL
+            env = os.environ.copy()
+            
+            for key in list(env.keys()):
+                if '_MEI' in key.upper():
+                    env.pop(key, None)
+                    
             env.pop('TCL_LIBRARY', None)
             env.pop('TK_LIBRARY', None)
             
