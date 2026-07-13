@@ -359,47 +359,49 @@ class PokemonFinderNLP:
             # 2. Preparamos el script de actualización con el Bucle de Espera
             # Preparamos el script de actualización inteligente
             # 1. Creamos un .bat súper simple (ya no necesita comandos complejos)
-            bat_path = os.path.join(os.path.dirname(exe_path), "update.bat")
-            exe_name = os.path.basename(exe_path)
+            # 1. Creamos un script VBS (Reemplazo silencioso y limpio del .bat)
+            vbs_path = os.path.join(os.path.dirname(exe_path), "update.vbs")
             
-            bat_content = f"""@echo off
-:WaitLoop
-timeout /t 1 /nobreak > NUL
-del "{exe_path}"
-if exist "{exe_path}" goto WaitLoop
+            vbs_content = f"""
+WScript.Sleep 1000
+Set fso = CreateObject("Scripting.FileSystemObject")
 
-ren "{new_exe_path}" "{exe_name}"
-start "" "{exe_path}"
-del "%~f0"
+' Bucle para borrar el viejo cuando Windows lo libere de la memoria
+Do While fso.FileExists("{exe_path}")
+    On Error Resume Next
+    fso.DeleteFile "{exe_path}", True
+    On Error GoTo 0
+    WScript.Sleep 500
+Loop
+
+' Renombramos el archivo temporal para que sea el oficial
+fso.MoveFile "{new_exe_path}", "{exe_path}"
+
+' Lanzamos la aplicación simulando un "doble clic" para aislarla por completo
+Set objShell = CreateObject("Shell.Application")
+objShell.ShellExecute "{exe_path}", "", "", "open", 1
+
+' Borramos este script para no dejar rastro
+fso.DeleteFile WScript.ScriptFullName
 """
-            with open(bat_path, "w") as f:
-                f.write(bat_content)
+            with open(vbs_path, "w", encoding="utf-8") as f:
+                f.write(vbs_content)
 
-            # 2. LA MAGIA: Purificamos el entorno (ADN) de Windows en Python
+            # 2. Purificamos el entorno de Python
+            import subprocess # (Por si no lo tenés importado arriba del todo)
             clean_env = os.environ.copy()
-            
-            # Borramos los rastros de PyInstaller
             clean_env.pop('_MEIPASS2', None)
             clean_env.pop('_MEIPASS', None)
-            clean_env.pop('TCL_LIBRARY', None)
-            clean_env.pop('TK_LIBRARY', None)
-            
-            # Limpiamos el PATH de carpetas temporales viejas
-            if 'PATH' in clean_env:
-                paths = clean_env['PATH'].split(os.pathsep)
-                clean_paths = [p for p in paths if '_MEI' not in p]
-                clean_env['PATH'] = os.pathsep.join(clean_paths)
 
-            # 3. Lanzamos el .bat totalmente desconectado del programa actual
+            # 3. Ejecutamos el VBS de forma invisible y huérfana
             DETACHED_PROCESS = 0x00000008
             subprocess.Popen(
-                bat_path,
+                ["wscript.exe", vbs_path], 
                 creationflags=DETACHED_PROCESS,
-                env=clean_env,
-                shell=True
+                env=clean_env
             )
 
-            # 4. Cerramos el programa al instante
+            # 4. Cerramos el programa viejo inmediatamente
             os._exit(0)
             
         except Exception as e:
