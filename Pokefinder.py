@@ -363,9 +363,13 @@ class PokemonFinderNLP:
           
 
             # 1. Preparamos las rutas
+            import subprocess
+            import os
+
+            # 1. Preparamos las rutas
             vbs_path = os.path.join(os.path.dirname(exe_path), "update.vbs")
             
-            # 2. El VBScript con purga de memoria (La solución validada)
+            # 2. El VBScript corregido (Usamos Chr(34) para evitar conflictos de comillas en Python)
             vbs_content = f"""
 WScript.Sleep 1000
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -402,12 +406,12 @@ Next
 wshShell.Environment("PROCESS").Item("PATH") = newPath
 
 ' E. Lanzamos la app con un entorno 100% esterilizado
-wshShell.Run """" & "{exe_path}" & """", 1, False
+wshShell.Run Chr(34) & "{exe_path}" & Chr(34), 1, False
 
 ' F. Autodestrucción del script
 fso.DeleteFile WScript.ScriptFullName
 """
-            # Escribimos el archivo
+            # Escribimos el archivo de forma segura
             with open(vbs_path, "w", encoding="utf-8") as f:
                 f.write(vbs_content)
 
@@ -416,7 +420,7 @@ fso.DeleteFile WScript.ScriptFullName
             subprocess.Popen(
                 ["wscript.exe", vbs_path], 
                 creationflags=DETACHED_PROCESS,
-                cwd=os.path.dirname(exe_path) # Ejecutamos desde la carpeta raíz, no desde el temp
+                cwd=os.path.dirname(exe_path)
             )
 
             # 4. Cerramos el proceso viejo agresivamente
