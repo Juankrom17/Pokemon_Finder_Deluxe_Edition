@@ -360,13 +360,22 @@ class PokemonFinderNLP:
             # Preparamos el script de actualización inteligente
             # 1. Creamos un .bat súper simple (ya no necesita comandos complejos)
             # 1. Creamos un script VBS (Reemplazo silencioso y limpio del .bat)
+          
+
+            # 1. Preparamos las rutas
+            import subprocess
+            import os
+
+            # 1. Preparamos las rutas
             vbs_path = os.path.join(os.path.dirname(exe_path), "update.vbs")
             
+            # 2. El VBScript corregido (Usamos Chr(34) para evitar conflictos de comillas en Python)
             vbs_content = f"""
 WScript.Sleep 1000
 Set fso = CreateObject("Scripting.FileSystemObject")
+Set wshShell = CreateObject("WScript.Shell")
 
-' Bucle para borrar el viejo cuando Windows lo libere de la memoria
+' A. Bucle paciente: Esperamos a que el .exe viejo libere la memoria
 Do While fso.FileExists("{exe_path}")
     On Error Resume Next
     fso.DeleteFile "{exe_path}", True
@@ -374,34 +383,47 @@ Do While fso.FileExists("{exe_path}")
     WScript.Sleep 500
 Loop
 
-' Renombramos el archivo temporal para que sea el oficial
+' B. Renombramos el archivo nuevo
 fso.MoveFile "{new_exe_path}", "{exe_path}"
 
-' Lanzamos la aplicación simulando un "doble clic" para aislarla por completo
-Set objShell = CreateObject("Shell.Application")
-objShell.ShellExecute "{exe_path}", "", "", "open", 1
+' C. LA PURGA: Borramos las variables ocultas directamente en el motor de Windows
+wshShell.Environment("PROCESS").Remove("_MEIPASS2")
+wshShell.Environment("PROCESS").Remove("_MEIPASS")
 
-' Borramos este script para no dejar rastro
+' D. LA PURGA DEL PATH: Filtramos y borramos cualquier rastro de carpetas _MEI viejas
+strPath = wshShell.Environment("PROCESS").Item("PATH")
+arrPaths = Split(strPath, ";")
+newPath = ""
+For Each p In arrPaths
+    If InStr(1, UCase(p), "_MEI") = 0 Then
+        If newPath = "" Then
+            newPath = p
+        Else
+            newPath = newPath & ";" & p
+        End If
+    End If
+Next
+wshShell.Environment("PROCESS").Item("PATH") = newPath
+
+' E. Lanzamos la app con un entorno 100% esterilizado
+wshShell.Run Chr(34) & "{exe_path}" & Chr(34), 1, False
+
+' F. Autodestrucción del script
 fso.DeleteFile WScript.ScriptFullName
 """
+            # Escribimos el archivo de forma segura
             with open(vbs_path, "w", encoding="utf-8") as f:
                 f.write(vbs_content)
 
-            # 2. Purificamos el entorno de Python
-            import subprocess # (Por si no lo tenés importado arriba del todo)
-            clean_env = os.environ.copy()
-            clean_env.pop('_MEIPASS2', None)
-            clean_env.pop('_MEIPASS', None)
-
-            # 3. Ejecutamos el VBS de forma invisible y huérfana
+            # 3. Lanzamos el VBScript de forma independiente
             DETACHED_PROCESS = 0x00000008
             subprocess.Popen(
                 ["wscript.exe", vbs_path], 
                 creationflags=DETACHED_PROCESS,
-                env=clean_env
+                cwd=os.path.dirname(exe_path)
             )
 
-            # 4. Cerramos el programa viejo inmediatamente
+            # 4. Cerramos el proceso viejo agresivamente
             os._exit(0)
             
         except Exception as e:
