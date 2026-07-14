@@ -362,9 +362,7 @@ class PokemonFinderNLP:
             # 1. Creamos un script VBS (Reemplazo silencioso y limpio del .bat)
           
 
-            # 1. Preparamos las rutas
-            import subprocess
-            import os
+            
 
             # 1. Preparamos las rutas
             vbs_path = os.path.join(os.path.dirname(exe_path), "update.vbs")
