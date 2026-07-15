@@ -374,13 +374,19 @@ class PokemonFinderNLP:
             os.rename(new_exe_path, exe_path)
 
             # 3. LA PURGA DE MEMORIA (El secreto que os.startfile no nos dejaba hacer)
+            # 3. LA PURGA DE MEMORIA EXTREMA (Case-Insensitive)
             clean_env = os.environ.copy()
             
-            # PyInstaller inyecta estas variables que envenenan al nuevo proceso.
-            # Tenemos que borrarlas TODAS del diccionario antes de pasárselo.
-            vars_to_remove = ['_MEIPASS2', '_MEIPASS', '_PYI_ALREADY_RUNNING', 'TCL_LIBRARY', 'TK_LIBRARY']
-            for var in vars_to_remove:
-                clean_env.pop(var, None)
+            # Buscamos y destruimos cualquier variable que contenga estas palabras,
+            # sin importar si están escritas en mayúsculas o minúsculas.
+            keys_to_remove = []
+            for key in clean_env.keys():
+                key_upper = key.upper()
+                if 'MEI' in key_upper or 'TCL' in key_upper or 'TK' in key_upper or 'PYI' in key_upper:
+                    keys_to_remove.append(key)
+                    
+            for key in keys_to_remove:
+                clean_env.pop(key, None)
                 
             # También limpiamos el PATH por si quedó la ruta temporal vieja
             if 'PATH' in clean_env:
