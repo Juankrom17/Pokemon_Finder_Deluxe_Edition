@@ -342,6 +342,8 @@ class PokemonFinderNLP:
             threading.Thread(target=self._apply_update, args=(download_url,), daemon=True).start()
 
     def _apply_update(self, download_url):
+        import subprocess
+        
         exe_path = sys.executable
         new_exe_path = exe_path + ".new"
         old_exe_path = exe_path + ".old"
@@ -352,36 +354,50 @@ class PokemonFinderNLP:
                 self.root.after(0, lambda p=percent: self.status_var.set(f"Descargando actualización... {p}%"))
         
         try:
-            # 1. Descargamos la nueva versión desde GitHub
+            # 1. Descargamos la nueva versión
             urllib.request.urlretrieve(download_url, new_exe_path, update_progress)
             
             if os.path.getsize(new_exe_path) < 1000000:
-                raise Exception("El archivo descargado parece corrupto o demasiado pequeño.")
+                raise Exception("El archivo descargado parece corrupto.")
             
-            # 2. EL TRUCO DEL RENOMBRE: Windows no te deja borrar un programa abierto, pero sí renombrarlo
-            
-            # Si quedó un ".old" trabado de una vez pasada, lo borramos primero
+            # 2. EL TRUCO DEL RENOMBRE (Evita bloqueos de Windows/OneDrive)
             if os.path.exists(old_exe_path):
-                try:
+                try: 
                     os.remove(old_exe_path)
-                except Exception:
+                except Exception: 
                     pass 
 
-            # Renombramos el programa viejo que se está ejecutando en este mismo instante
             os.rename(exe_path, old_exe_path)
-            
-            # Colocamos el programa nuevo, recién descargado, en el lugar oficial
             os.rename(new_exe_path, exe_path)
 
-            # 3. LANZAMIENTO LIMPIO: os.startfile emula un "doble clic" con el mouse
-            # Esto rompe por completo la herencia de memoria. La versión nueva no hereda NADA de la vieja.
-            os.startfile(exe_path)
+            # 3. LA PURGA DE MEMORIA (El secreto que os.startfile no nos dejaba hacer)
+            clean_env = os.environ.copy()
+            
+            # PyInstaller inyecta estas variables que envenenan al nuevo proceso.
+            # Tenemos que borrarlas TODAS del diccionario antes de pasárselo.
+            vars_to_remove = ['_MEIPASS2', '_MEIPASS', '_PYI_ALREADY_RUNNING', 'TCL_LIBRARY', 'TK_LIBRARY']
+            for var in vars_to_remove:
+                clean_env.pop(var, None)
+                
+            # También limpiamos el PATH por si quedó la ruta temporal vieja
+            if 'PATH' in clean_env:
+                paths = clean_env['PATH'].split(os.pathsep)
+                clean_env['PATH'] = os.pathsep.join([p for p in paths if '_MEI' not in p.upper()])
 
-            # 4. Cerramos el programa viejo (Pokefinder.old) instantáneamente
+            # 4. LANZAMIENTO DESVINCULADO Y LIMPIO
+            DETACHED_PROCESS = 0x00000008
+            subprocess.Popen(
+                [exe_path],
+                env=clean_env,
+                creationflags=DETACHED_PROCESS,
+                close_fds=True # Desconecta los archivos abiertos del proceso padre
+            )
+
+            # 5. Cerramos el viejo instantáneamente
             os._exit(0)
             
         except Exception as e:
-            # Fallback de seguridad: si algo falla, intentamos devolver el nombre original para no romper el programa
+            # Fallback: si falla, devolvemos los nombres a la normalidad
             if os.path.exists(old_exe_path) and not os.path.exists(exe_path):
                 try: 
                     os.rename(old_exe_path, exe_path)
