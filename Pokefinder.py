@@ -72,6 +72,15 @@ class PokemonFinderNLP:
     def __init__(self):
         self.root = tk.Tk()
         
+        # --- SOLUCIÓN BARRA DE TAREAS ---
+        # Fuerza a Windows a reconocer este proceso como una app independiente
+        try:
+            myappid = 'juankrom.pokefinder.deluxe.1.0' # ID arbitrario para tu app
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+        # --------------------------------
+
         # --- LIMPIEZA DE ACTUALIZACIONES VIEJAS ---
         if getattr(sys, 'frozen', False):
             exe_path = sys.executable
@@ -83,27 +92,29 @@ class PokemonFinderNLP:
                     pass
         # ------------------------------------------
 
-        # SOLUCIÓN: Definir la variable antes de usarla
-        cached_title = "Pokefinder" # O el título por defecto que tuvieras
-        
-        # Ahora sí, cuando tu código intente usarla más abajo, no va a fallar:
+        cached_title = "Pokefinder" 
         self.root.title(cached_title) 
-        # ... resto de tu código ...
         self.root.geometry("440x690") 
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
+        
+        # --- SOLUCIÓN VENTANA SUPERIOR ---
+        # Usamos Pillow (que ya demostró que lee bien tu .ico) en lugar del iconbitmap nativo
         try:
-            # Intenta cargar el PNG usando resource_path para compatibilidad con PyInstaller
-            ruta_icono_png = resource_path("icono.png")
-            if os.path.exists(ruta_icono_png):
-                self.icon_img = tk.PhotoImage(file=ruta_icono_png)
-                self.root.iconphoto(False, self.icon_img)
-            else:
-                # Si usás .ico, este método nativo de Windows lo cargará de fondo
-                self.root.iconbitmap(default=resource_path("icono.ico"))
+            ruta_icono = resource_path("icono.ico")
+            imagen_icono = Image.open(ruta_icono)
+            self.icon_img_window = ImageTk.PhotoImage(imagen_icono)
+            # El primer parámetro en 'True' le dice a Tkinter que use este ícono 
+            # como predeterminado para esta ventana y todas las secundarias.
+            self.root.iconphoto(True, self.icon_img_window) 
         except Exception:
-            pass
+            try:
+                # Fallback de emergencia por si algo sale mal
+                self.root.iconbitmap(resource_path("icono.ico"))
+            except Exception:
+                pass
+        # ---------------------------------
 
         self.zones = {} 
         self.known_pokemon = set()
