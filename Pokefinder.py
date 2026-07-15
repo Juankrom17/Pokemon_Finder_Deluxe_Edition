@@ -73,9 +73,12 @@ class PokemonFinderNLP:
                     pass
         # ------------------------------------------
 
-        # Leer versión cacheada (si existe) para mostrarla rápido al inicio...
-            
-        self.root.title(cached_title)
+        # SOLUCIÓN: Definir la variable antes de usarla
+        cached_title = "Pokefinder" # O el título por defecto que tuvieras
+        
+        # Ahora sí, cuando tu código intente usarla más abajo, no va a fallar:
+        self.root.title(cached_title) 
+        # ... resto de tu código ...
         self.root.geometry("440x690") 
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
