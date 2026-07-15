@@ -62,15 +62,18 @@ class PokemonFinderNLP:
     def __init__(self):
         self.root = tk.Tk()
         
-        # Leer versión cacheada (si existe) para mostrarla rápido al inicio
-        cached_title = "🔴 Pokémon Finder (Smart NLP)"
-        if os.path.exists("version_cache.txt"):
-            try:
-                with open("version_cache.txt", "r") as f:
-                    cached_tag = f.read().strip()
-                    if cached_tag:
-                        cached_title = f"🔴 Pokémon Finder (Smart NLP) - {cached_tag}"
-            except: pass
+        # --- LIMPIEZA DE ACTUALIZACIONES VIEJAS ---
+        if getattr(sys, 'frozen', False):
+            exe_path = sys.executable
+            old_exe = exe_path + ".old"
+            if os.path.exists(old_exe):
+                try:
+                    os.remove(old_exe)
+                except Exception:
+                    pass
+        # ------------------------------------------
+
+        # Leer versión cacheada (si existe) para mostrarla rápido al inicio...
             
         self.root.title(cached_title)
         self.root.geometry("440x690") 
@@ -341,6 +344,7 @@ class PokemonFinderNLP:
     def _apply_update(self, download_url):
         exe_path = sys.executable
         new_exe_path = exe_path + ".new"
+        old_exe_path = exe_path + ".old"
         
         def update_progress(block_num, block_size, total_size):
             if total_size > 0:
@@ -354,78 +358,37 @@ class PokemonFinderNLP:
             if os.path.getsize(new_exe_path) < 1000000:
                 raise Exception("El archivo descargado parece corrupto o demasiado pequeño.")
             
-            # 2. Preparamos el script de actualización con el Bucle de Espera
-            # 2. Preparamos el script de actualización con el Bucle de Espera
-            # 2. Preparamos el script de actualización con el Bucle de Espera
-            # Preparamos el script de actualización inteligente
-            # 1. Creamos un .bat súper simple (ya no necesita comandos complejos)
-            # 1. Creamos un script VBS (Reemplazo silencioso y limpio del .bat)
-          
-
+            # 2. EL TRUCO DEL RENOMBRE: Windows no te deja borrar un programa abierto, pero sí renombrarlo
             
+            # Si quedó un ".old" trabado de una vez pasada, lo borramos primero
+            if os.path.exists(old_exe_path):
+                try:
+                    os.remove(old_exe_path)
+                except Exception:
+                    pass 
 
-            # 1. Preparamos las rutas
-            vbs_path = os.path.join(os.path.dirname(exe_path), "update.vbs")
+            # Renombramos el programa viejo que se está ejecutando en este mismo instante
+            os.rename(exe_path, old_exe_path)
             
-            # 2. El VBScript corregido (Usamos Chr(34) para evitar conflictos de comillas en Python)
-            vbs_content = f"""
-WScript.Sleep 1000
-Set fso = CreateObject("Scripting.FileSystemObject")
-Set wshShell = CreateObject("WScript.Shell")
+            # Colocamos el programa nuevo, recién descargado, en el lugar oficial
+            os.rename(new_exe_path, exe_path)
 
-' A. Bucle paciente: Esperamos a que el .exe viejo libere la memoria
-Do While fso.FileExists("{exe_path}")
-    On Error Resume Next
-    fso.DeleteFile "{exe_path}", True
-    On Error GoTo 0
-    WScript.Sleep 500
-Loop
+            # 3. LANZAMIENTO LIMPIO: os.startfile emula un "doble clic" con el mouse
+            # Esto rompe por completo la herencia de memoria. La versión nueva no hereda NADA de la vieja.
+            os.startfile(exe_path)
 
-' B. Renombramos el archivo nuevo
-fso.MoveFile "{new_exe_path}", "{exe_path}"
-
-' C. LA PURGA: Borramos las variables ocultas directamente en el motor de Windows
-wshShell.Environment("PROCESS").Remove("_MEIPASS2")
-wshShell.Environment("PROCESS").Remove("_MEIPASS")
-
-' D. LA PURGA DEL PATH: Filtramos y borramos cualquier rastro de carpetas _MEI viejas
-strPath = wshShell.Environment("PROCESS").Item("PATH")
-arrPaths = Split(strPath, ";")
-newPath = ""
-For Each p In arrPaths
-    If InStr(1, UCase(p), "_MEI") = 0 Then
-        If newPath = "" Then
-            newPath = p
-        Else
-            newPath = newPath & ";" & p
-        End If
-    End If
-Next
-wshShell.Environment("PROCESS").Item("PATH") = newPath
-
-' E. Lanzamos la app con un entorno 100% esterilizado
-wshShell.Run Chr(34) & "{exe_path}" & Chr(34), 1, False
-
-' F. Autodestrucción del script
-fso.DeleteFile WScript.ScriptFullName
-"""
-            # Escribimos el archivo de forma segura
-            with open(vbs_path, "w", encoding="utf-8") as f:
-                f.write(vbs_content)
-
-            # 3. Lanzamos el VBScript de forma independiente
-            DETACHED_PROCESS = 0x00000008
-            subprocess.Popen(
-                ["wscript.exe", vbs_path], 
-                creationflags=DETACHED_PROCESS,
-                cwd=os.path.dirname(exe_path)
-            )
-
-            # 4. Cerramos el proceso viejo agresivamente
+            # 4. Cerramos el programa viejo (Pokefinder.old) instantáneamente
             os._exit(0)
             
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error Update", f"Fallo al actualizar: {e}"))
+            # Fallback de seguridad: si algo falla, intentamos devolver el nombre original para no romper el programa
+            if os.path.exists(old_exe_path) and not os.path.exists(exe_path):
+                try: 
+                    os.rename(old_exe_path, exe_path)
+                except: 
+                    pass
+
+            self.root.after(0, lambda err=e: messagebox.showerror("Error Update", f"Fallo al actualizar: {err}"))
             self.root.after(0, lambda: self.status_var.set("Listo."))
 
     # ---------------------------------------------------------
