@@ -24,8 +24,8 @@ jobs:
         run: pip install pyinstaller pillow mss pytesseract
 
       - name: Compilar exe
-        run: pyinstaller --onefile --windowed --name "Pokefinder" --icon=icono.ico Pokefinder.py
-
+        run: pyinstaller --onefile --windowed --name "Pokefinder" --icon=icono.ico --add-data "icono.ico;." Pokefinder.py
+      
       - name: Subir artifact (develop)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4

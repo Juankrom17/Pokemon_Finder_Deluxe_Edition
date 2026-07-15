@@ -12,6 +12,16 @@ import ctypes
 import difflib
 import sys
 import subprocess
+from PIL import Image, ImageTk  # Asegurate de tener estas importaciones
+
+def resource_path(relative_path):
+    """ Obtiene la ruta absoluta al recurso, funciona para dev y para PyInstaller """
+    try:
+        # PyInstaller guarda la ruta temporal en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 # --- CONFIGURACIÓN DE AUTO-UPDATE ---
 REPO_OWNER = "Juankrom17"  # <-- PONÉ TU USUARIO DE GITHUB ACÁ
@@ -84,9 +94,15 @@ class PokemonFinderNLP:
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
         try:
-            self.icon_img = tk.PhotoImage(file="icono.png")
-            self.root.iconphoto(False, self.icon_img)
-        except:
+            # Intenta cargar el PNG usando resource_path para compatibilidad con PyInstaller
+            ruta_icono_png = resource_path("icono.png")
+            if os.path.exists(ruta_icono_png):
+                self.icon_img = tk.PhotoImage(file=ruta_icono_png)
+                self.root.iconphoto(False, self.icon_img)
+            else:
+                # Si usás .ico, este método nativo de Windows lo cargará de fondo
+                self.root.iconbitmap(default=resource_path("icono.ico"))
+        except Exception:
             pass
 
         self.zones = {} 
@@ -442,7 +458,32 @@ class PokemonFinderNLP:
     def _build_ui(self):
         header = tk.Frame(self.root, bg="#16213e", pady=12)
         header.pack(fill="x")
-        tk.Label(header, text="🜔 Pokémon Finder Smart NLP", font=("Arial", 16, "bold"), fg="#e94560", bg="#16213e").pack()
+        try:
+            # Busca tu archivo (usá "icono.ico" o "icono.png" según el que vayas a empaquetar)
+            ruta_logo = resource_path("icono.ico") 
+            imagen_original = Image.open(ruta_logo)
+            
+            # Ajusta el tamaño y maneja la compatibilidad con versiones viejas y nuevas de Pillow
+            if hasattr(Image, "Resampling"):
+                imagen_redimensionada = imagen_original.resize((24, 24), Image.Resampling.LANCZOS)
+            else:
+                imagen_redimensionada = imagen_original.resize((24, 24), Image.LANCZOS)
+                
+            self.logo_img = ImageTk.PhotoImage(imagen_redimensionada)
+            
+            # Crea el texto con la imagen al lado
+            tk.Label(
+                header, 
+                text=" Pokémon Finder Smart NLP", 
+                image=self.logo_img, 
+                compound="left", 
+                font=("Arial", 16, "bold"), 
+                fg="#e94560", 
+                bg="#16213e"
+            ).pack()
+        except Exception:
+            # Si falla al cargar la imagen, vuelve a poner el texto viejo para que no crashee
+            tk.Label(header, text="🜔 Pokémon Finder Smart NLP", font=("Arial", 16, "bold"), fg="#e94560", bg="#16213e").pack()
         tk.Label(header, text="Multizona + Autocorrector Persistente", font=("Arial", 9), fg="#a0a0c0", bg="#16213e").pack()
 
         frame_cap = tk.LabelFrame(self.root, text=" 📐 1. Mapear Cajas de Texto ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=8, padx=10)
@@ -631,6 +672,10 @@ class PokemonFinderNLP:
     # CAPTURA Y MOTOR NLP
     # ---------------------------------------------------------
     def _execute_physical_capture(self, coords):
+        if not MSS_AVAILABLE:
+            messagebox.showerror("Librería faltante", "La librería de captura 'mss' no está disponible o falló al cargarse. No se puede realizar la captura.")
+            return
+
         self.is_capturing = True
         self.status_var.set("Limpiando caché de imagen y texto...")
         
@@ -990,7 +1035,14 @@ if __name__ == "__main__":
     if not is_admin:
         # Intentar reiniciar como administrador automáticamente
         try:
-            ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv[1:]), None, 1)
+            if getattr(sys, 'frozen', False):
+                # Si es el .exe compilado, pasamos los argumentos tal cual
+                argumentos = " ".join(sys.argv[1:])
+            else:
+                # Si es el script .py, necesitamos pasar la ruta del script como argumento a python.exe
+                argumentos = " ".join([f'"{arg}"' for arg in sys.argv])
+                
+            ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, argumentos, None, 1)
             if ret <= 32:
                 import tkinter as tk
                 from tkinter import messagebox
