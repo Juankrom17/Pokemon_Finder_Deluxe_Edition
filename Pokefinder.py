@@ -12,22 +12,20 @@ import ctypes
 import difflib
 import sys
 import subprocess
-from PIL import Image, ImageTk  # Asegurate de tener estas importaciones
+from PIL import Image, ImageTk 
 
 def resource_path(relative_path):
-    """ Obtiene la ruta absoluta al recurso, funciona para dev y para PyInstaller """
     try:
-        # PyInstaller guarda la ruta temporal en _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
 # --- CONFIGURACIÓN DE AUTO-UPDATE ---
-REPO_OWNER = "Juankrom17"  # <-- PONÉ TU USUARIO DE GITHUB ACÁ
-REPO_NAME = "Pokemon_Finder_Deluxe_Edition"     # <-- PONÉ EL NOMBRE DE TU REPO ACÁ
+REPO_OWNER = "Juankrom17"  
+REPO_NAME = "Pokemon_Finder_Deluxe_Edition"    
 # ------------------------------------
-#buep
+
 try:
     from PIL import Image, ImageTk, ImageOps
     PIL_AVAILABLE = True
@@ -72,16 +70,12 @@ class PokemonFinderNLP:
     def __init__(self):
         self.root = tk.Tk()
         
-        # --- SOLUCIÓN BARRA DE TAREAS ---
-        # Fuerza a Windows a reconocer este proceso como una app independiente
         try:
-            myappid = 'juankrom.pokefinder.deluxe.1.0' # ID arbitrario para tu app
+            myappid = 'juankrom.pokefinder.deluxe.1.0' 
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
-        # --------------------------------
 
-        # --- LIMPIEZA DE ACTUALIZACIONES VIEJAS ---
         if getattr(sys, 'frozen', False):
             exe_path = sys.executable
             old_exe = exe_path + ".old"
@@ -90,34 +84,29 @@ class PokemonFinderNLP:
                     os.remove(old_exe)
                 except Exception:
                     pass
-        # ------------------------------------------
 
         cached_title = "Pokefinder" 
         self.root.title(cached_title) 
-        self.root.geometry("440x690") 
+        self.root.geometry("440x730")  # <-- Ventana más compacta
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
         
-        # --- SOLUCIÓN VENTANA SUPERIOR ---
-        # Usamos Pillow (que ya demostró que lee bien tu .ico) en lugar del iconbitmap nativo
         try:
             ruta_icono = resource_path("icono.ico")
             imagen_icono = Image.open(ruta_icono)
             self.icon_img_window = ImageTk.PhotoImage(imagen_icono)
-            # El primer parámetro en 'True' le dice a Tkinter que use este ícono 
-            # como predeterminado para esta ventana y todas las secundarias.
             self.root.iconphoto(True, self.icon_img_window) 
         except Exception:
             try:
-                # Fallback de emergencia por si algo sale mal
                 self.root.iconbitmap(resource_path("icono.ico"))
             except Exception:
                 pass
-        # ---------------------------------
 
         self.zones = {} 
         self.known_pokemon = set()
+        self.pokemon_ids = {} 
+        
         self.custom_mappings = {}
         self.custom_fixes = self._load_custom_fixes() 
         self.is_capturing = False
@@ -125,11 +114,17 @@ class PokemonFinderNLP:
         self.overlay = None
         self.start_x = self.start_y = 0
         self.tk_preview = None
-        
         self.f8_pressed = False
         
         self.last_raw_clean = ""
         self.last_full_text = ""
+        
+        # --- SISTEMA DE EQUIPO ---
+        self.team = [None] * 6
+        self.team_images = [None] * 6
+        self._load_team()
+        os.makedirs("sprites_cache", exist_ok=True) 
+        # -------------------------
                     
         self._build_ui()
         self._load_zones() 
@@ -140,12 +135,29 @@ class PokemonFinderNLP:
         threading.Thread(target=self._check_for_updates, daemon=True).start()
         
         self.root.after(500, self._check_tesseract_setup)
+        self.root.after(200, self._render_team_ui)
         
         self.root.mainloop()
 
     # ---------------------------------------------------------
-    # SISTEMAS DE MEMORIA DE TEXTO
+    # SISTEMAS DE MEMORIA DE TEXTO Y EQUIPO
     # ---------------------------------------------------------
+    def _load_team(self):
+        if os.path.exists("team_config.json"):
+            try:
+                with open("team_config.json", "r") as f:
+                    self.team = json.load(f)
+                    while len(self.team) < 6: self.team.append(None)
+                    self.team = self.team[:6]
+            except:
+                self.team = [None] * 6
+
+    def _save_team(self):
+        try:
+            with open("team_config.json", "w") as f:
+                json.dump(self.team, f)
+        except Exception as e: print(e)
+
     def _load_custom_fixes(self):
         if os.path.exists("custom_fixes.json"):
             try:
@@ -164,13 +176,11 @@ class PokemonFinderNLP:
 
     def _check_tesseract_setup(self):
         global TESSERACT_AVAILABLE
-        if TESSERACT_AVAILABLE:
-            return
+        if TESSERACT_AVAILABLE: return
 
-        try:
-            import pytesseract
+        try: import pytesseract
         except ImportError:
-            messagebox.showerror("Error crítico", "Falta el módulo de Python 'pytesseract'.")
+            messagebox.showerror("Error crítico", "Falta el módulo de Python 'pytesseract'.", parent=self.root)
             return
 
         saved_path_file = "tesseract_path.txt"
@@ -182,10 +192,8 @@ class PokemonFinderNLP:
                     pytesseract.pytesseract.tesseract_cmd = saved_path
                     TESSERACT_AVAILABLE = True
                     return
-            except:
-                pass
+            except: pass
                 
-        # Buscar en el registro de Windows automáticamente
         reg_path = self._find_tesseract_registry()
         if reg_path:
             pytesseract.pytesseract.tesseract_cmd = reg_path
@@ -198,13 +206,15 @@ class PokemonFinderNLP:
 
         has_tesseract = messagebox.askyesno(
             "Tesseract OCR no detectado", 
-            "No se detectó Tesseract OCR, necesario para leer el texto en pantalla.\n\n¿Ya lo tenés instalado en tu computadora?"
+            "No se detectó Tesseract OCR, necesario para leer el texto en pantalla.\n\n¿Ya lo tenés instalado en tu computadora?",
+            parent=self.root
         )
 
         if has_tesseract:
             path = simpledialog.askstring(
                 "Ruta de Tesseract", 
-                "Pegá la ruta completa hacia el archivo tesseract.exe\nEj: C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+                "Pegá la ruta completa hacia el archivo tesseract.exe\nEj: C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+                parent=self.root
             )
             if path:
                 path = path.strip().strip('"').strip("'")
@@ -215,18 +225,19 @@ class PokemonFinderNLP:
                         with open(saved_path_file, "w") as f:
                             f.write(path)
                     except: pass
-                    messagebox.showinfo("Éxito", "Tesseract configurado correctamente.")
+                    messagebox.showinfo("Éxito", "Tesseract configurado correctamente.", parent=self.root)
                 else:
-                    messagebox.showerror("Error", "Ruta inválida. Asegurate de que termine en tesseract.exe. Reiniciá el programa para volver a intentar.")
+                    messagebox.showerror("Error", "Ruta inválida. Asegurate de que termine en tesseract.exe. Reiniciá el programa para volver a intentar.", parent=self.root)
         else:
             do_install = messagebox.askyesno(
                 "Instalar Tesseract",
-                "Para que la aplicación funcione correctamente, se debe instalar Tesseract OCR.\n¿Querés que el programa lo descargue e instale por vos?"
+                "Para que la aplicación funcione correctamente, se debe instalar Tesseract OCR.\n¿Querés que el programa lo descargue e instale por vos?",
+                parent=self.root
             )
             if do_install:
                 self._install_tesseract()
             else:
-                messagebox.showwarning("Atención", "El programa no podrá leer la pantalla hasta que instales Tesseract OCR.")
+                messagebox.showwarning("Atención", "El programa no podrá leer la pantalla hasta que instales Tesseract OCR.", parent=self.root)
 
     def _install_tesseract(self):
         self.status_var.set("Descargando Tesseract OCR...")
@@ -255,14 +266,10 @@ class PokemonFinderNLP:
                 urllib.request.urlretrieve(installer_url, installer_path, tess_progress)
                 
                 self.root.after(0, lambda: self.status_var.set("Instalando Tesseract... Completá el instalador."))
-                
-                # Ejecutar el instalador
                 subprocess.run([installer_path], check=True)
                 
-                # Buscar dónde se instaló realmente leyendo el registro
                 found_path = self._find_tesseract_registry()
                 if not found_path:
-                    # Fallbacks por si falla el registro
                     common_paths = [
                         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
                         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
@@ -285,11 +292,11 @@ class PokemonFinderNLP:
                     except: pass
                     
                     self.root.after(0, lambda: self.status_var.set("Tesseract detectado correctamente."))
-                    self.root.after(0, lambda: messagebox.showinfo("Éxito", f"Tesseract instalado y detectado en:\n{found_path}\n\n¡Listo para usar!"))
+                    self.root.after(0, lambda: messagebox.showinfo("Éxito", f"Tesseract instalado y detectado en:\n{found_path}\n\n¡Listo para usar!", parent=self.root))
                 else:
-                    self.root.after(0, lambda: messagebox.showwarning("Aviso", "Tesseract se instaló pero no se pudo detectar automáticamente su ubicación.\nPor favor asigná la ruta manualmente la próxima vez."))
+                    self.root.after(0, lambda: messagebox.showwarning("Aviso", "Tesseract se instaló pero no se pudo detectar automáticamente su ubicación.\nPor favor asigná la ruta manualmente la próxima vez.", parent=self.root))
             except Exception as e:
-                self.root.after(0, lambda err=e: messagebox.showerror("Error", f"No se pudo instalar Tesseract:\n{err}"))
+                self.root.after(0, lambda err=e: messagebox.showerror("Error", f"No se pudo instalar Tesseract:\n{err}", parent=self.root))
                 self.root.after(0, lambda: self.status_var.set("Error al instalar Tesseract."))
 
         threading.Thread(target=download_and_install, daemon=True).start()
@@ -317,30 +324,23 @@ class PokemonFinderNLP:
                                             exe_path = os.path.join(install_location, "tesseract.exe")
                                             if os.path.exists(exe_path):
                                                 return exe_path
-                                except OSError:
-                                    pass
-                        except OSError:
-                            pass
-            except OSError:
-                pass
+                                except OSError: pass
+                        except OSError: pass
+            except OSError: pass
         return None
 
     # ---------------------------------------------------------
     # SISTEMA DE AUTO-ACTUALIZACIÓN INTELIGENTE 
     # ---------------------------------------------------------
     def _check_for_updates(self):
-        if not getattr(sys, 'frozen', False):
-            return
-
-        if REPO_OWNER == "TuUsuarioGitHub":
-            return
+        if not getattr(sys, 'frozen', False): return
+        if REPO_OWNER == "TuUsuarioGitHub": return
 
         try:
             url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
-                
                 latest_version = data.get('tag_name', 'Nueva Versión')
                 
                 for asset in data.get('assets', []):
@@ -349,31 +349,26 @@ class PokemonFinderNLP:
                         local_size = os.path.getsize(sys.executable)
                         
                         if remote_size == local_size:
-                            # Estamos actualizados: guardamos la versión y actualizamos el título
                             try:
-                                with open("version_cache.txt", "w") as f:
-                                    f.write(latest_version)
+                                with open("version_cache.txt", "w") as f: f.write(latest_version)
                             except: pass
                             self.root.after(0, lambda: self.root.title(f"🔴 Pokémon Finder (Smart NLP) - {latest_version}"))
                         else:
-                            # Estamos desactualizados
                             self.root.after(0, lambda: self.root.title(f"🔴 Pokémon Finder - (Actualización {latest_version} disponible)"))
                             download_url = asset['browser_download_url']
                             self.root.after(0, lambda: self._prompt_update(latest_version, download_url))
-                        
                         break
         except Exception as e:
             print(f"Error silencioso al buscar updates: {e}")
 
     def _prompt_update(self, version, download_url):
-        if messagebox.askyesno("Actualización disponible", f"¡Hay una versión diferente publicada en GitHub ({version})!\n\n¿Querés descargarla y actualizar ahora?"):
+        if messagebox.askyesno("Actualización disponible", f"¡Hay una versión diferente publicada en GitHub ({version})!\n\n¿Querés descargarla y actualizar ahora?", parent=self.root):
             self.status_var.set("Descargando actualización...")
             self.root.update()
             threading.Thread(target=self._apply_update, args=(download_url,), daemon=True).start()
 
     def _apply_update(self, download_url):
         import subprocess
-        
         exe_path = sys.executable
         new_exe_path = exe_path + ".new"
         old_exe_path = exe_path + ".old"
@@ -384,28 +379,18 @@ class PokemonFinderNLP:
                 self.root.after(0, lambda p=percent: self.status_var.set(f"Descargando actualización... {p}%"))
         
         try:
-            # 1. Descargamos la nueva versión
             urllib.request.urlretrieve(download_url, new_exe_path, update_progress)
-            
             if os.path.getsize(new_exe_path) < 1000000:
                 raise Exception("El archivo descargado parece corrupto.")
             
-            # 2. EL TRUCO DEL RENOMBRE (Evita bloqueos de Windows/OneDrive)
             if os.path.exists(old_exe_path):
-                try: 
-                    os.remove(old_exe_path)
-                except Exception: 
-                    pass 
+                try: os.remove(old_exe_path)
+                except Exception: pass 
 
             os.rename(exe_path, old_exe_path)
             os.rename(new_exe_path, exe_path)
 
-            # 3. LA PURGA DE MEMORIA (El secreto que os.startfile no nos dejaba hacer)
-            # 3. LA PURGA DE MEMORIA EXTREMA (Case-Insensitive)
             clean_env = os.environ.copy()
-            
-            # Buscamos y destruimos cualquier variable que contenga estas palabras,
-            # sin importar si están escritas en mayúsculas o minúsculas.
             keys_to_remove = []
             for key in clean_env.keys():
                 key_upper = key.upper()
@@ -415,32 +400,20 @@ class PokemonFinderNLP:
             for key in keys_to_remove:
                 clean_env.pop(key, None)
                 
-            # También limpiamos el PATH por si quedó la ruta temporal vieja
             if 'PATH' in clean_env:
                 paths = clean_env['PATH'].split(os.pathsep)
                 clean_env['PATH'] = os.pathsep.join([p for p in paths if '_MEI' not in p.upper()])
 
-            # 4. LANZAMIENTO DESVINCULADO Y LIMPIO
             DETACHED_PROCESS = 0x00000008
-            subprocess.Popen(
-                [exe_path],
-                env=clean_env,
-                creationflags=DETACHED_PROCESS,
-                close_fds=True # Desconecta los archivos abiertos del proceso padre
-            )
-
-            # 5. Cerramos el viejo instantáneamente
+            subprocess.Popen([exe_path], env=clean_env, creationflags=DETACHED_PROCESS, close_fds=True)
             os._exit(0)
             
         except Exception as e:
-            # Fallback: si falla, devolvemos los nombres a la normalidad
             if os.path.exists(old_exe_path) and not os.path.exists(exe_path):
-                try: 
-                    os.rename(old_exe_path, exe_path)
-                except: 
-                    pass
+                try: os.rename(old_exe_path, exe_path)
+                except: pass
 
-            self.root.after(0, lambda err=e: messagebox.showerror("Error Update", f"Fallo al actualizar: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("Error Update", f"Fallo al actualizar: {err}", parent=self.root))
             self.root.after(0, lambda: self.status_var.set("Listo."))
 
     # ---------------------------------------------------------
@@ -467,65 +440,73 @@ class PokemonFinderNLP:
         self.root.after(40, self._start_hardware_polling)
 
     def _build_ui(self):
-        header = tk.Frame(self.root, bg="#16213e", pady=12)
+        # Márgenes (pady) reducidos a lo largo de toda la UI para compactar la altura
+        header = tk.Frame(self.root, bg="#16213e", pady=8)
         header.pack(fill="x")
         try:
-            # Busca tu archivo (usá "icono.ico" o "icono.png" según el que vayas a empaquetar)
             ruta_logo = resource_path("icono.ico") 
             imagen_original = Image.open(ruta_logo)
             
-            # Ajusta el tamaño y maneja la compatibilidad con versiones viejas y nuevas de Pillow
-            if hasattr(Image, "Resampling"):
-                imagen_redimensionada = imagen_original.resize((24, 24), Image.Resampling.LANCZOS)
-            else:
-                imagen_redimensionada = imagen_original.resize((24, 24), Image.LANCZOS)
+            if hasattr(Image, "Resampling"): imagen_redimensionada = imagen_original.resize((24, 24), Image.Resampling.LANCZOS)
+            else: imagen_redimensionada = imagen_original.resize((24, 24), Image.LANCZOS)
                 
             self.logo_img = ImageTk.PhotoImage(imagen_redimensionada)
-            
-            # Crea el texto con la imagen al lado
-            tk.Label(
-                header, 
-                text=" Pokémon Finder Smart NLP", 
-                image=self.logo_img, 
-                compound="left", 
-                font=("Arial", 16, "bold"), 
-                fg="#e94560", 
-                bg="#16213e"
-            ).pack()
+            tk.Label(header, text=" Pokémon Finder Smart NLP", image=self.logo_img, compound="left", font=("Arial", 16, "bold"), fg="#e94560", bg="#16213e").pack()
         except Exception:
-            # Si falla al cargar la imagen, vuelve a poner el texto viejo para que no crashee
             tk.Label(header, text="🜔 Pokémon Finder Smart NLP", font=("Arial", 16, "bold"), fg="#e94560", bg="#16213e").pack()
         tk.Label(header, text="Multizona + Autocorrector Persistente", font=("Arial", 9), fg="#a0a0c0", bg="#16213e").pack()
 
-        frame_cap = tk.LabelFrame(self.root, text=" 📐 1. Mapear Cajas de Texto ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=8, padx=10)
-        frame_cap.pack(fill="x", padx=15, pady=(15, 4))
+        frame_cap = tk.LabelFrame(self.root, text=" 📐 1. Mapear Cajas de Texto ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=4, padx=10)
+        frame_cap.pack(fill="x", padx=15, pady=(10, 2))
 
-        tk.Label(frame_cap, text="Trazá cajas de diálogo. Se guardarán automáticamente.", fg="#a0a0c0", bg="#1a1a2e", font=("Arial", 8), wraplength=380, justify="left").pack(anchor="w", pady=(0, 8))
-        tk.Button(frame_cap, text="+ Nueva caja de diálogo (F8)", command=self._start_selection, bg="#e94560", fg="white", font=("Arial", 11, "bold"), relief="flat", cursor="hand2", pady=6).pack(fill="x")
+        tk.Label(frame_cap, text="Trazá cajas de diálogo. Se guardarán automáticamente.", fg="#a0a0c0", bg="#1a1a2e", font=("Arial", 8), wraplength=380, justify="left").pack(anchor="w", pady=(0, 4))
+        tk.Button(frame_cap, text="+ Nueva caja de diálogo (F8)", command=self._start_selection, bg="#e94560", fg="white", font=("Arial", 11, "bold"), relief="flat", cursor="hand2", pady=4).pack(fill="x")
         
-        tk.Button(frame_cap, text="⚙️ Gestionar / Borrar Zonas", command=self._manage_zones, bg="#252538", fg="#ffdd88", font=("Arial", 9, "bold"), relief="flat", cursor="hand2", pady=4).pack(fill="x", pady=(6, 0))
+        tk.Button(frame_cap, text="⚙️ Gestionar / Borrar Zonas", command=self._manage_zones, bg="#252538", fg="#ffdd88", font=("Arial", 9, "bold"), relief="flat", cursor="hand2", pady=2).pack(fill="x", pady=(4, 0))
         
-        self.preview_label = tk.Label(frame_cap, bg="#0f3460", text="Vista previa de captura\n(Esperando...)", fg="#606080", font=("Arial", 9), pady=15)
-        self.preview_label.pack(pady=6, fill="x")
+        self.preview_label = tk.Label(frame_cap, bg="#0f3460", text="Vista previa de captura\n(Esperando...)", fg="#606080", font=("Arial", 9), pady=5)
+        self.preview_label.pack(pady=4, fill="x")
 
         frame_info = tk.Frame(self.root, bg="#1a1a2e")
-        frame_info.pack(fill="x", padx=15, pady=4)
+        frame_info.pack(fill="x", padx=15, pady=2)
         
         self.zones_var = tk.StringVar(value="🎯 Zonas activas: Ninguna")
         tk.Label(frame_info, textvariable=self.zones_var, fg="#4ade80", bg="#1a1a2e", font=("Arial", 9, "bold")).pack()
 
-        frame_debug = tk.LabelFrame(self.root, text=" 🔬 Motor NLP (Extracción) ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=6, padx=10)
-        frame_debug.pack(fill="x", padx=15, pady=4)
+        frame_debug = tk.LabelFrame(self.root, text=" 🔬 Motor NLP (Extracción) ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=4, padx=10)
+        frame_debug.pack(fill="x", padx=15, pady=2)
 
         self.raw_text_var = tk.StringVar(value="(Texto crudo...)")
         tk.Label(frame_debug, textvariable=self.raw_text_var, fg="#a0a0c0", bg="#1a1a2e", font=("Arial", 8), wraplength=370, justify="left").pack(anchor="w")
         
         self.debug_var = tk.StringVar(value="(Resultado...)")
-        tk.Label(frame_debug, textvariable=self.debug_var, fg="#ffdd88", bg="#1a1a2e", font=("Courier", 10, "bold"), wraplength=370, justify="left").pack(anchor="w", pady=(5,0))
+        tk.Label(frame_debug, textvariable=self.debug_var, fg="#ffdd88", bg="#1a1a2e", font=("Courier", 10, "bold"), wraplength=370, justify="left").pack(anchor="w", pady=(2,0))
 
-        tk.Button(frame_debug, text="✏️ Corregir Última Captura", command=self._correct_last_capture, bg="#252538", fg="#ffaa00", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", pady=2).pack(fill="x", pady=(8,0))
-        
+        tk.Button(frame_debug, text="✏️ Corregir Última Captura", command=self._correct_last_capture, bg="#252538", fg="#ffaa00", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", pady=2).pack(fill="x", pady=(4,0))
         tk.Button(frame_debug, text="🧠 Gestionar Decisiones Aprendidas", command=self._manage_mappings, bg="#252538", fg="#4ade80", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", pady=2).pack(fill="x", pady=(4,0))
+
+        # --- SECCIÓN DEL EQUIPO POKÉMON ---
+        frame_team = tk.LabelFrame(self.root, text=" 🛡️ Mi Equipo (Acceso Rápido) ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=4, padx=10)
+        frame_team.pack(fill="x", padx=15, pady=2)
+        
+        self.team_buttons = []
+        team_grid = tk.Frame(frame_team, bg="#1a1a2e")
+        team_grid.pack(pady=2)
+        
+        for i in range(6):
+            slot_frame = tk.Frame(team_grid, width=54, height=54, bg="#252538")
+            slot_frame.pack_propagate(False)
+            slot_frame.grid(row=0, column=i, padx=4)
+            
+            btn = tk.Button(slot_frame, text="+", bg="#252538", fg="#a0a0c0", font=("Arial", 14, "bold"),
+                            relief="flat", cursor="hand2", activebackground="#e94560",
+                            command=lambda idx=i: self._on_team_slot_click(idx))
+            btn.bind("<Button-3>", lambda e, idx=i: self._on_team_slot_right_click(idx))
+            btn.pack(fill="both", expand=True)
+            self.team_buttons.append(btn)
+            
+        tk.Label(frame_team, text="Click izq: Abrir / Añadir | Click derecho: Quitar del equipo", fg="#606080", bg="#1a1a2e", font=("Arial", 8)).pack(pady=(4,0))
+        # ----------------------------------
 
         bottom_frame = tk.Frame(self.root, bg="#1a1a2e")
         bottom_frame.pack(side="bottom", fill="x", padx=15, pady=5)
@@ -535,6 +516,85 @@ class PokemonFinderNLP:
 
         credits_text = "Created by: Juan Esteban Kromberger\n                Gino Laprovida"
         tk.Label(bottom_frame, text=credits_text, fg="#606080", bg="#1a1a2e", font=("Arial", 7, "bold"), justify="right").pack(side="right", anchor="se")
+
+    # ---------------------------------------------------------
+    # FUNCIONES DEL EQUIPO (ACCESOS RÁPIDOS)
+    # ---------------------------------------------------------
+    def _on_team_slot_click(self, index):
+        poke = self.team[index]
+        if poke:
+            self._search_pokemon(poke)
+        else:
+            self._prompt_add_team(index)
+            
+    def _on_team_slot_right_click(self, index):
+        if self.team[index]:
+            name = self.team[index]
+            if messagebox.askyesno("Quitar del equipo", f"¿Querés quitar a {name.capitalize()} de este espacio?", parent=self.root):
+                self.team[index] = None
+                self._save_team()
+                self._render_team_ui()
+
+    def _prompt_add_team(self, index):
+        self.root.deiconify()
+        name = simpledialog.askstring("Añadir al Equipo", "Ingresá el nombre exacto del Pokémon:", parent=self.root)
+        if name:
+            name = name.lower().strip()
+            if name in self.known_pokemon or not self.pokemon_ids:
+                self.team[index] = name
+                self._save_team()
+                self._render_team_ui()
+                self.status_var.set(f"✅ {name.capitalize()} añadido al equipo.")
+            else:
+                messagebox.showwarning("No encontrado", f"No reconozco a '{name}'. Asegurate de escribirlo bien.", parent=self.root)
+
+    def _render_team_ui(self):
+        for i, poke in enumerate(self.team):
+            btn = self.team_buttons[i]
+            if poke:
+                self._load_and_set_sprite(poke, i, btn)
+            else:
+                btn.config(image="", text="+", bg="#252538")
+                self.team_images[i] = None
+
+    def _load_and_set_sprite(self, name, index, btn):
+        cache_path = os.path.join("sprites_cache", f"{name}.png")
+        
+        def load_local():
+            try:
+                img = Image.open(cache_path).convert("RGBA")
+                if hasattr(Image, "Resampling"):
+                    img = img.resize((50, 50), Image.Resampling.LANCZOS)
+                else:
+                    img = img.resize((50, 50), Image.LANCZOS)
+                    
+                tk_img = ImageTk.PhotoImage(img)
+                self.team_images[index] = tk_img 
+                self.root.after(0, lambda: btn.config(image=tk_img, text="", bg="#1a1a2e"))
+            except Exception:
+                self.root.after(0, lambda: btn.config(image="", text=name[:3].capitalize(), bg="#4ade80", fg="#1a1a2e"))
+
+        def download_and_load():
+            poke_id = self.pokemon_ids.get(name)
+            if poke_id:
+                url = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{poke_id}.png"
+            else:
+                url = f"https://play.pokemonshowdown.com/sprites/gen5/{name}.png"
+            
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    img_data = response.read()
+                    with open(cache_path, "wb") as f:
+                        f.write(img_data)
+                self.root.after(0, load_local)
+            except Exception:
+                self.root.after(0, load_local) 
+                
+        if os.path.exists(cache_path):
+            load_local()
+        else:
+            threading.Thread(target=download_and_load, daemon=True).start()
 
     # ---------------------------------------------------------
     # SELECCIÓN Y GESTIÓN DE ZONAS
@@ -586,10 +646,13 @@ class PokemonFinderNLP:
         self.key_win.configure(bg="#16213e")
         self.key_win.attributes("-topmost", True)
         
+        self.key_win.transient(self.root)
+        self.key_win.grab_set()
+        self.key_win.focus_force()
+        
         tk.Label(self.key_win, text="Presioná la tecla para buscar en esta zona\n(Ej: F4, Q, 1, etc.)", fg="#4ade80", bg="#16213e", font=("Arial", 10, "bold")).pack(pady=30)
         
         self.key_win.bind("<Key>", lambda e: self._save_key(e, coords))
-        self.key_win.focus_force()
 
     def _save_key(self, event, coords):
         vk = event.keycode
@@ -622,7 +685,7 @@ class PokemonFinderNLP:
 
     def _manage_zones(self):
         if not self.zones:
-            messagebox.showinfo("Zonas", "No hay zonas activas para borrar.")
+            messagebox.showinfo("Zonas", "No hay zonas activas para borrar.", parent=self.root)
             return
 
         self.manage_win = tk.Toplevel(self.root)
@@ -630,6 +693,10 @@ class PokemonFinderNLP:
         self.manage_win.geometry("280x350")
         self.manage_win.configure(bg="#16213e")
         self.manage_win.attributes("-topmost", True)
+        
+        self.manage_win.transient(self.root)
+        self.manage_win.grab_set()
+        self.manage_win.focus_force()
 
         tk.Label(self.manage_win, text="Tus Zonas Activas:", fg="#e94560", bg="#16213e", font=("Arial", 11, "bold")).pack(pady=12)
 
@@ -684,7 +751,7 @@ class PokemonFinderNLP:
     # ---------------------------------------------------------
     def _execute_physical_capture(self, coords):
         if not MSS_AVAILABLE:
-            messagebox.showerror("Librería faltante", "La librería de captura 'mss' no está disponible o falló al cargarse. No se puede realizar la captura.")
+            messagebox.showerror("Librería faltante", "La librería de captura 'mss' no está disponible o falló al cargarse. No se puede realizar la captura.", parent=self.root)
             return
 
         self.is_capturing = True
@@ -735,25 +802,20 @@ class PokemonFinderNLP:
                     cfg = f"--oem 3 --psm {psm} -l eng"
                     text = pytesseract.image_to_string(variant_img, config=cfg).strip()
                     
-                    # 1. Limpiamos símbolos para mostrar
                     clean_display = re.sub(r'[^a-zA-Z0-9\s]', '', text)
                     if len(clean_display) > len(full_text_detected):
                         full_text_detected = clean_display 
                         
                     merged_word = re.sub(r'[^a-zA-Z]', '', text.lower())
                     
-                    # 2. Verificamos si hay arreglos manuales guardados
                     if merged_word in self.custom_fixes: 
                         if self.custom_fixes[merged_word] not in found_pokemon_list:
                             found_pokemon_list.append(self.custom_fixes[merged_word])
                     else:
-                        # 3. BUSCAMOS MÚLTIPLES POKÉMON DENTRO DEL TEXTO UNIDO
                         for poke in self.known_pokemon:
-                            # Mínimo 4 letras para que no detecte sub-nombres por accidente
                             if len(poke) >= 3 and poke in merged_word and poke not in found_pokemon_list:
                                 found_pokemon_list.append(poke)
                     
-                    # 4. Lectura normal por palabras separadas y aproximación de errores tipográficos
                     clean_text = re.sub(r'[^a-zA-Z\s]', '', text.lower())
                     for w in clean_text.split():
                         if w in ignore_words or len(w) < 4: 
@@ -768,29 +830,23 @@ class PokemonFinderNLP:
                             
                 except Exception: pass
             
-            if found_pokemon_list:
-                break
+            if found_pokemon_list: break
 
-        # Guardar la última lectura para poder corregirla después
         self.last_full_text = full_text_detected
         self.last_raw_clean = re.sub(r'[^a-zA-Z]', '', full_text_detected.lower())
 
         self.root.after(0, lambda: self.raw_text_var.set(f"Texto detectado: {full_text_detected[:100]}..."))
 
-        # 1. Si NO encontró nada, pedimos la inserción manual (libre)
         if not found_pokemon_list:
             self.root.after(0, lambda: self._ask_manual_pokemon(full_text_detected, img))
             return
 
-        # Limpiamos duplicados por las dudas
         found_pokemon_list = list(dict.fromkeys(found_pokemon_list))
 
-        # 2. Si encontró exactamente UNO
         if len(found_pokemon_list) == 1:
             best_match = found_pokemon_list[0].capitalize()
             self._finish_success(best_match, found_pokemon_list, img)
             
-        # 3. Si encontró MÁS DE UNO (Acá vuelve la función Versus)
         else:
             mapping_key = ",".join(sorted(found_pokemon_list))
             
@@ -802,13 +858,14 @@ class PokemonFinderNLP:
 
     def _correct_last_capture(self):
         if not hasattr(self, 'last_raw_clean') or not self.last_raw_clean:
-            messagebox.showwarning("Aviso", "Primero tenés que hacer una captura para poder corregirla.")
+            messagebox.showwarning("Aviso", "Primero tenés que hacer una captura para poder corregirla.", parent=self.root)
             return
 
         self.root.deiconify()
         manual_poke = simpledialog.askstring(
             "✏️ Corregir Detección",
-            f"Último texto leído por la cámara:\n'{self.last_full_text}'\n\nSi detectó un Pokémon incorrecto, ingresá el nombre real para enseñárselo y buscarlo:"
+            f"Último texto leído por la cámara:\n'{self.last_full_text}'\n\nSi detectó un Pokémon incorrecto, ingresá el nombre real para enseñárselo y buscarlo:",
+            parent=self.root
         )
 
         if manual_poke:
@@ -825,7 +882,7 @@ class PokemonFinderNLP:
 
     def _ask_manual_pokemon(self, full_text, img):
         self.root.deiconify() 
-        manual_poke = simpledialog.askstring("Pokémon no detectado", f"Texto leído: '{full_text}'\n\nNo se reconoció. Ingresá el nombre correcto para buscarlo y recordarlo:")
+        manual_poke = simpledialog.askstring("Pokémon no detectado", f"Texto leído: '{full_text}'\n\nNo se reconoció. Ingresá el nombre correcto para buscarlo y recordarlo:", parent=self.root)
         
         if manual_poke:
             manual_poke = manual_poke.lower().strip()
@@ -843,9 +900,6 @@ class PokemonFinderNLP:
             self._update_preview(img)
             self._restore_ui()
         
-    # ==========================================
-    # SISTEMA DE APRENDIZAJE NLP Y DECISIONES
-    # ==========================================
     def _save_mappings_to_disk(self):
         try:
             with open("custom_mappings.json", "w") as f:
@@ -867,6 +921,10 @@ class PokemonFinderNLP:
         self.ask_win.geometry("300x350")
         self.ask_win.configure(bg="#16213e")
         self.ask_win.attributes("-topmost", True)
+        
+        self.ask_win.transient(self.root)
+        self.ask_win.grab_set()
+        self.ask_win.focus_force()
         
         tk.Label(self.ask_win, text="¡El detector está en duda!\n¿Cuál es el Pokémon correcto?", fg="#ffdd88", bg="#16213e", font=("Arial", 10, "bold")).pack(pady=15)
         
@@ -899,7 +957,7 @@ class PokemonFinderNLP:
 
     def _manage_mappings(self):
         if not self.custom_mappings and not self.custom_fixes:
-            messagebox.showinfo("Decisiones", "Todavía no le enseñaste ninguna decisión al programa.")
+            messagebox.showinfo("Decisiones", "Todavía no le enseñaste ninguna decisión al programa.", parent=self.root)
             return
 
         self.map_win = tk.Toplevel(self.root)
@@ -907,6 +965,10 @@ class PokemonFinderNLP:
         self.map_win.geometry("340x400")
         self.map_win.configure(bg="#16213e")
         self.map_win.attributes("-topmost", True)
+        
+        self.map_win.transient(self.root)
+        self.map_win.grab_set()
+        self.map_win.focus_force()
 
         tk.Label(self.map_win, text="Tu historial de correcciones:", fg="#4ade80", bg="#16213e", font=("Arial", 11, "bold")).pack(pady=12)
 
@@ -970,7 +1032,6 @@ class PokemonFinderNLP:
             
         self._refresh_map_window()
         self.status_var.set("🗑️ Decisión borrada.")
-    # ==========================================
 
     def _finish_success(self, best_match, all_found, img):
         debug_txt = f"🔍 Entidades: {', '.join([p.capitalize() for p in all_found])}\n"
@@ -989,21 +1050,16 @@ class PokemonFinderNLP:
     def _update_preview(self, img):
         preview = img.copy()
         
-        if hasattr(Image, "Resampling"):
-            preview.thumbnail((380, 150), Image.Resampling.LANCZOS)
-        else:
-            preview.thumbnail((380, 150), Image.LANCZOS)
+        if hasattr(Image, "Resampling"): preview.thumbnail((380, 150), Image.Resampling.LANCZOS)
+        else: preview.thumbnail((380, 150), Image.LANCZOS)
             
         self.tk_preview = ImageTk.PhotoImage(preview)
-        
         self.preview_label.config(image=self.tk_preview, text="")
 
     def _get_image_variants(self, img):
         w, h = img.size
-        if hasattr(Image, "Resampling"):
-            big = img.resize((w * 4, h * 4), Image.Resampling.LANCZOS)
-        else:
-            big = img.resize((w * 4, h * 4), Image.LANCZOS)
+        if hasattr(Image, "Resampling"): big = img.resize((w * 4, h * 4), Image.Resampling.LANCZOS)
+        else: big = img.resize((w * 4, h * 4), Image.LANCZOS)
             
         gray = ImageOps.autocontrast(big.convert("L"))
         
@@ -1017,7 +1073,12 @@ class PokemonFinderNLP:
             req = urllib.request.Request("https://pokeapi.co/api/v2/pokemon?limit=2000", headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
-                self.known_pokemon.update({p['name'].lower() for p in data['results']})
+                
+                for p in data['results']:
+                    name = p['name'].lower()
+                    self.known_pokemon.add(name)
+                    poke_id = p['url'].strip('/').split('/')[-1]
+                    self.pokemon_ids[name] = poke_id
                 
             for poke in self.custom_fixes.values():
                 self.known_pokemon.add(poke.lower())
@@ -1044,13 +1105,10 @@ if __name__ == "__main__":
         is_admin = False
         
     if not is_admin:
-        # Intentar reiniciar como administrador automáticamente
         try:
             if getattr(sys, 'frozen', False):
-                # Si es el .exe compilado, pasamos los argumentos tal cual
                 argumentos = " ".join(sys.argv[1:])
             else:
-                # Si es el script .py, necesitamos pasar la ruta del script como argumento a python.exe
                 argumentos = " ".join([f'"{arg}"' for arg in sys.argv])
                 
             ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, argumentos, None, 1)
@@ -1066,4 +1124,3 @@ if __name__ == "__main__":
         sys.exit(0)
         
     PokemonFinderNLP()
-
