@@ -92,7 +92,7 @@ class PokemonFinderNLP:
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
-        
+        # Botón para abrir la tabla de tipos
         # --- CONFIGURAR DIRECTORIO DE GUARDADO ---
         self._setup_save_directory()
         # -----------------------------------------
@@ -1151,6 +1151,29 @@ class PokemonFinderNLP:
         yield ImageOps.invert(gray)
         yield gray.point(lambda p: 255 if p > 130 else 0)
 
+    
+    def _clean_api_name(self, api_name):
+        """
+        Limpia los sufijos de la API (-altered, -mega) conservando las excepciones
+        que legítimamente llevan guion en su nombre base para PokémonDB.
+        """
+        exceptions = {
+            "ho-oh", "porygon-z", "jangmo-o", "hakamo-o", "kommo-o",
+            "tapu-koko", "tapu-lele", "tapu-bulu", "tapu-fini",
+            "chi-yu", "chien-pao", "ting-lu", "wo-chien",
+            "mr-mime", "mr-rime", "mime-jr", "type-null",
+            "nidoran-f", "nidoran-m"
+        }
+        
+        if api_name in exceptions:
+            return api_name
+        
+        # Eliminar cualquier sufijo a partir del primer guion (ej: giratina-altered -> giratina)
+        if "-" in api_name:
+            return api_name.split("-")[0]
+        
+        return api_name
+    
     def _fetch_pokemon_list(self):
         try:
             req = urllib.request.Request("https://pokeapi.co/api/v2/pokemon?limit=2000", headers={'User-Agent': 'Mozilla/5.0'})
@@ -1158,10 +1181,16 @@ class PokemonFinderNLP:
                 data = json.loads(response.read().decode())
                 
                 for p in data['results']:
-                    name = p['name'].lower()
-                    self.known_pokemon.add(name)
+                    original_name = p['name'].lower()
+                    # Pasamos el nombre por nuestro filtro
+                    clean_name = self._clean_api_name(original_name)
+                    
+                    self.known_pokemon.add(clean_name)
+                    
                     poke_id = p['url'].strip('/').split('/')[-1]
-                    self.pokemon_ids[name] = poke_id
+                    # Solo guardamos el ID si no existe todavía (prioriza las formas base sobre las megas)
+                    if clean_name not in self.pokemon_ids:
+                        self.pokemon_ids[clean_name] = poke_id
                 
             for poke in self.custom_fixes.values():
                 self.known_pokemon.add(poke.lower())
@@ -1174,9 +1203,17 @@ class PokemonFinderNLP:
 
     def _search_pokemon(self, name):
         if not name: return
-        url = f"https://pokemondb.net/pokedex/{urllib.parse.quote(name.lower())}"
-        try: webbrowser.open_new_tab(url)
-        except Exception as e: print(e)
+        
+        # Formateo estricto para PokemonDB (ej: "Mr. Mime" -> "mr-mime", "Farfetch'd" -> "farfetchd")
+        url_name = name.lower().strip()
+        url_name = re.sub(r'[^a-z0-9\-\s]', '', url_name) # Quita puntos, apóstrofes y símbolos raros
+        url_name = url_name.replace(" ", "-") # Reemplaza los espacios por guiones
+        
+        url = f"https://pokemondb.net/pokedex/{urllib.parse.quote(url_name)}"
+        try: 
+            webbrowser.open_new_tab(url)
+        except Exception as e: 
+            print(e)
 
 if __name__ == "__main__":
     import ctypes
