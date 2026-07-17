@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox, simpledialog, filedialog
 import threading
 import webbrowser
 import urllib.parse
@@ -18,7 +18,7 @@ def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
 # --- CONFIGURACIÓN DE AUTO-UPDATE ---
@@ -92,6 +92,10 @@ class PokemonFinderNLP:
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
         
+        # --- CONFIGURAR DIRECTORIO DE GUARDADO ---
+        self._setup_save_directory()
+        # -----------------------------------------
+        
         try:
             ruta_icono = resource_path("icono.ico")
             imagen_icono = Image.open(ruta_icono)
@@ -138,6 +142,46 @@ class PokemonFinderNLP:
         self.root.after(200, self._render_team_ui)
         
         self.root.mainloop()
+
+    # ---------------------------------------------------------
+    # GESTIÓN DEL DIRECTORIO DE GUARDADO
+    # ---------------------------------------------------------
+    def _setup_save_directory(self):
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        config_file = os.path.join(base_dir, "rutas_config.txt")
+        save_dir = ""
+        
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, "r") as f:
+                    save_dir = f.read().strip()
+            except Exception:
+                pass
+                
+        if not save_dir or not os.path.exists(save_dir):
+            self.root.withdraw() 
+            messagebox.showinfo("Configuración Inicial", "Por favor, selecciona en qué carpeta quieres que se guarden los datos, cachés y configuraciones del programa.", parent=self.root)
+            
+            chosen_dir = filedialog.askdirectory(title="Selecciona la carpeta para guardar los datos")
+            
+            if chosen_dir: 
+                save_dir = os.path.join(chosen_dir, "PokeFinder_Data")
+                os.makedirs(save_dir, exist_ok=True)
+                try:
+                    with open(config_file, "w") as f:
+                        f.write(save_dir)
+                except Exception:
+                    pass
+            else:
+                save_dir = base_dir
+            
+            self.root.deiconify() 
+
+        os.chdir(save_dir)
 
     # ---------------------------------------------------------
     # SISTEMAS DE MEMORIA DE TEXTO Y EQUIPO
@@ -440,7 +484,6 @@ class PokemonFinderNLP:
         self.root.after(40, self._start_hardware_polling)
 
     def _build_ui(self):
-        # Márgenes (pady) reducidos a lo largo de toda la UI para compactar la altura
         header = tk.Frame(self.root, bg="#16213e", pady=8)
         header.pack(fill="x")
         try:
