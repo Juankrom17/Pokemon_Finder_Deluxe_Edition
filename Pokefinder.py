@@ -12,6 +12,7 @@ import ctypes
 import difflib
 import sys
 import subprocess
+import shutil  # <- IMPORTANTE: Añadido para poder mover los archivos viejos
 from PIL import Image, ImageTk 
 
 def resource_path(relative_path):
@@ -87,7 +88,7 @@ class PokemonFinderNLP:
 
         cached_title = "Pokefinder" 
         self.root.title(cached_title) 
-        self.root.geometry("440x730")  # <-- Ventana más compacta
+        self.root.geometry("440x730")
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
@@ -152,7 +153,12 @@ class PokemonFinderNLP:
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             
-        config_file = os.path.join(base_dir, "rutas_config.txt")
+        # Utilizamos la carpeta AppData del usuario para guardar la ruta elegida.
+        # Esto soluciona problemas de permisos que hacen que se reinicie cada vez.
+        appdata_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.environ.get('APPDATA', os.path.expanduser('~'))), "PokeFinderSmartNLP")
+        os.makedirs(appdata_dir, exist_ok=True)
+        config_file = os.path.join(appdata_dir, "rutas_config.txt")
+        
         save_dir = ""
         
         if os.path.exists(config_file):
@@ -162,6 +168,7 @@ class PokemonFinderNLP:
             except Exception:
                 pass
                 
+        # Si no hay directorio guardado o dejó de existir, preguntamos
         if not save_dir or not os.path.exists(save_dir):
             self.root.withdraw() 
             messagebox.showinfo("Configuración Inicial", "Por favor, selecciona en qué carpeta quieres que se guarden los datos, cachés y configuraciones del programa.", parent=self.root)
@@ -171,11 +178,33 @@ class PokemonFinderNLP:
             if chosen_dir: 
                 save_dir = os.path.join(chosen_dir, "PokeFinder_Data")
                 os.makedirs(save_dir, exist_ok=True)
+                
                 try:
                     with open(config_file, "w") as f:
                         f.write(save_dir)
                 except Exception:
                     pass
+                
+                # --- MIGRACIÓN DE ARCHIVOS DE VERSIONES ANTERIORES ---
+                archivos_a_mover = ["team_config.json", "custom_fixes.json", "custom_mappings.json", "zones_config.json", "tesseract_path.txt"]
+                
+                for archivo in archivos_a_mover:
+                    origen = os.path.join(base_dir, archivo)
+                    destino = os.path.join(save_dir, archivo)
+                    if os.path.exists(origen):
+                        try:
+                            shutil.move(origen, destino)
+                        except Exception:
+                            pass
+                            
+                sprites_origen = os.path.join(base_dir, "sprites_cache")
+                sprites_destino = os.path.join(save_dir, "sprites_cache")
+                if os.path.exists(sprites_origen) and not os.path.exists(sprites_destino):
+                    try:
+                        shutil.move(sprites_origen, sprites_destino)
+                    except Exception:
+                        pass
+                # -------------------------------------------------------
             else:
                 save_dir = base_dir
             
@@ -427,12 +456,23 @@ class PokemonFinderNLP:
             if os.path.getsize(new_exe_path) < 1000000:
                 raise Exception("El archivo descargado parece corrupto.")
             
+            # Borrado preventivo
             if os.path.exists(old_exe_path):
                 try: os.remove(old_exe_path)
                 except Exception: pass 
 
-            os.rename(exe_path, old_exe_path)
-            os.rename(new_exe_path, exe_path)
+            # Usar os.replace en vez de os.rename soluciona el problema de "archivo ya existe" en Windows
+            try:
+                os.replace(exe_path, old_exe_path)
+            except Exception:
+                # Fallback por si fallara la versión de Python o SO
+                try: os.rename(exe_path, old_exe_path)
+                except Exception: pass
+
+            try:
+                os.replace(new_exe_path, exe_path)
+            except Exception:
+                os.rename(new_exe_path, exe_path)
 
             clean_env = os.environ.copy()
             keys_to_remove = []
@@ -454,7 +494,7 @@ class PokemonFinderNLP:
             
         except Exception as e:
             if os.path.exists(old_exe_path) and not os.path.exists(exe_path):
-                try: os.rename(old_exe_path, exe_path)
+                try: os.replace(old_exe_path, exe_path)
                 except: pass
 
             self.root.after(0, lambda err=e: messagebox.showerror("Error Update", f"Fallo al actualizar: {err}", parent=self.root))
