@@ -12,7 +12,7 @@ import ctypes
 import difflib
 import sys
 import subprocess
-import shutil  # <- IMPORTANTE: Añadido para poder mover los archivos viejos
+import shutil  
 from PIL import Image, ImageTk 
 
 def resource_path(relative_path):
@@ -92,7 +92,7 @@ class PokemonFinderNLP:
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
-        # Botón para abrir la tabla de tipos
+        
         # --- CONFIGURAR DIRECTORIO DE GUARDADO ---
         self._setup_save_directory()
         # -----------------------------------------
@@ -130,6 +130,11 @@ class PokemonFinderNLP:
         self._load_team()
         os.makedirs("sprites_cache", exist_ok=True) 
         # -------------------------
+
+        # --- AJUSTES DE USUARIO ---
+        self.user_settings = {"reuse_tab": True, "silent_mode": False}
+        self._load_user_settings()
+        # -------------------------
                     
         self._build_ui()
         self._load_zones() 
@@ -145,7 +150,7 @@ class PokemonFinderNLP:
         self.root.mainloop()
 
     # ---------------------------------------------------------
-    # GESTIÓN DEL DIRECTORIO DE GUARDADO
+    # GESTIÓN DEL DIRECTORIO DE GUARDADO Y AJUSTES
     # ---------------------------------------------------------
     def _setup_save_directory(self):
         if getattr(sys, 'frozen', False):
@@ -153,8 +158,6 @@ class PokemonFinderNLP:
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             
-        # Utilizamos la carpeta AppData del usuario para guardar la ruta elegida.
-        # Esto soluciona problemas de permisos que hacen que se reinicie cada vez.
         appdata_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.environ.get('APPDATA', os.path.expanduser('~'))), "PokeFinderSmartNLP")
         os.makedirs(appdata_dir, exist_ok=True)
         config_file = os.path.join(appdata_dir, "rutas_config.txt")
@@ -168,7 +171,6 @@ class PokemonFinderNLP:
             except Exception:
                 pass
                 
-        # Si no hay directorio guardado o dejó de existir, preguntamos
         if not save_dir or not os.path.exists(save_dir):
             self.root.withdraw() 
             messagebox.showinfo("Configuración Inicial", "Por favor, selecciona en qué carpeta quieres que se guarden los datos, cachés y configuraciones del programa.", parent=self.root)
@@ -185,8 +187,7 @@ class PokemonFinderNLP:
                 except Exception:
                     pass
                 
-                # --- MIGRACIÓN DE ARCHIVOS DE VERSIONES ANTERIORES ---
-                archivos_a_mover = ["team_config.json", "custom_fixes.json", "custom_mappings.json", "zones_config.json", "tesseract_path.txt"]
+                archivos_a_mover = ["team_config.json", "custom_fixes.json", "custom_mappings.json", "zones_config.json", "tesseract_path.txt", "settings.json"]
                 
                 for archivo in archivos_a_mover:
                     origen = os.path.join(base_dir, archivo)
@@ -204,13 +205,54 @@ class PokemonFinderNLP:
                         shutil.move(sprites_origen, sprites_destino)
                     except Exception:
                         pass
-                # -------------------------------------------------------
             else:
                 save_dir = base_dir
             
             self.root.deiconify() 
 
         os.chdir(save_dir)
+
+    def _load_user_settings(self):
+        if os.path.exists("settings.json"):
+            try:
+                with open("settings.json", "r") as f:
+                    self.user_settings.update(json.load(f))
+            except: pass
+
+    def _save_user_settings(self):
+        try:
+            with open("settings.json", "w") as f:
+                json.dump(self.user_settings, f)
+        except: pass
+
+    def _open_settings(self):
+        set_win = tk.Toplevel(self.root)
+        set_win.title("⚙️ Ajustes")
+        set_win.geometry("340x220")
+        set_win.configure(bg="#16213e")
+        set_win.attributes("-topmost", True)
+        set_win.transient(self.root)
+        set_win.grab_set()
+
+        tk.Label(set_win, text="Ajustes de Búsqueda", fg="#e94560", bg="#16213e", font=("Arial", 11, "bold")).pack(pady=10)
+
+        var_reuse = tk.BooleanVar(value=self.user_settings.get("reuse_tab", True))
+        var_silent = tk.BooleanVar(value=self.user_settings.get("silent_mode", False))
+
+        def save_and_close():
+            self.user_settings["reuse_tab"] = var_reuse.get()
+            self.user_settings["silent_mode"] = var_silent.get()
+            self._save_user_settings()
+            set_win.destroy()
+
+        chk_reuse = tk.Checkbutton(set_win, text="Intentar cargar en la misma pestaña abierta", variable=var_reuse, bg="#16213e", fg="#a0a0c0", selectcolor="#252538", activebackground="#16213e", activeforeground="white")
+        chk_reuse.pack(anchor="w", padx=20, pady=5)
+
+        chk_silent = tk.Checkbutton(set_win, text="Modo Silencioso (No abrir Showdown,\nsolo actualizar la calculadora de tipos)", variable=var_silent, bg="#16213e", fg="#a0a0c0", selectcolor="#252538", activebackground="#16213e", activeforeground="white", justify="left")
+        chk_silent.pack(anchor="w", padx=20, pady=5)
+
+        tk.Button(set_win, text="💾 Guardar Ajustes", command=save_and_close, bg="#e94560", fg="white", font=("Arial", 9, "bold"), cursor="hand2").pack(pady=20)
+
 
     # ---------------------------------------------------------
     # SISTEMAS DE MEMORIA DE TEXTO Y EQUIPO
@@ -539,6 +581,9 @@ class PokemonFinderNLP:
             tk.Label(header, text="🜔 Pokémon Finder Smart NLP", font=("Arial", 16, "bold"), fg="#e94560", bg="#16213e").pack()
         tk.Label(header, text="Multizona + Autocorrector Persistente", font=("Arial", 9), fg="#a0a0c0", bg="#16213e").pack()
 
+        btn_settings = tk.Button(header, text="⚙️", bg="#252538", fg="white", font=("Arial", 12), relief="flat", cursor="hand2", command=self._open_settings)
+        btn_settings.place(relx=0.96, rely=0.5, anchor="e")
+
         frame_cap = tk.LabelFrame(self.root, text=" 📐 1. Mapear Cajas de Texto ", fg="#e94560", bg="#1a1a2e", font=("Arial", 10, "bold"), pady=4, padx=10)
         frame_cap.pack(fill="x", padx=15, pady=(10, 2))
 
@@ -590,6 +635,11 @@ class PokemonFinderNLP:
             
         tk.Label(frame_team, text="Click izq: Abrir / Añadir | Click derecho: Quitar del equipo", fg="#606080", bg="#1a1a2e", font=("Arial", 8)).pack(pady=(4,0))
         # ----------------------------------
+
+        # --- BOTÓN DE CALCULADORA DE TIPOS ---
+        btn_calc = tk.Button(self.root, text="🧮 Abrir Calculadora de Tipos", command=self._open_type_calculator, bg="#252538", fg="#ffaa00", font=("Arial", 9, "bold"), relief="flat", cursor="hand2", pady=4)
+        btn_calc.pack(fill="x", padx=15, pady=(5, 0))
+        # -------------------------------------
 
         bottom_frame = tk.Frame(self.root, bg="#1a1a2e")
         bottom_frame.pack(side="bottom", fill="x", padx=15, pady=5)
@@ -1151,12 +1201,199 @@ class PokemonFinderNLP:
         yield ImageOps.invert(gray)
         yield gray.point(lambda p: 255 if p > 130 else 0)
 
+   # ---------------------------------------------------------
+    # CALCULADORA DE TIPOS NATIVA (ADAPTATIVA Y CENTRADA)
+    # ---------------------------------------------------------
+    def _open_type_calculator(self):
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.focus_force()
+            return
+
+        self.calc_win = tk.Toplevel()
+        self.calc_win.title("🧮 Calculadora de Tipos")
+        self.calc_win.geometry("440x720")
+        self.calc_win.minsize(380, 600) 
+        self.calc_win.configure(bg="#1a1a2e")
+        self.calc_win.attributes("-topmost", True)
+        
+        try:
+            self.calc_win.iconphoto(False, self.icon_img_window) 
+        except:
+            pass
+
+        self.type_colors = {
+            "Acero": "#5A8EA1", "Agua": "#3399FF", "Bicho": "#A8B820",
+            "Dragón": "#6F35FC", "Eléctrico": "#F8D030", "Fantasma": "#705898",
+            "Fuego": "#FF4422", "Hada": "#FF65D5", "Hielo": "#98D8D8",
+            "Lucha": "#C03028", "Normal": "#A8A878", "Planta": "#78C850",
+            "Psíquico": "#F85888", "Roca": "#B8A038", "Siniestro": "#705848",
+            "Tierra": "#E0C068", "Veneno": "#A040A0", "Volador": "#A890F0"
+        }
+
+        self.type_chart = {
+            "Acero": {"Lucha":2, "Fuego":2, "Tierra":2, "Normal":0.5, "Volador":0.5, "Roca":0.5, "Bicho":0.5, "Acero":0.5, "Planta":0.5, "Psíquico":0.5, "Hielo":0.5, "Dragón":0.5, "Hada":0.5, "Veneno":0},
+            "Agua": {"Planta":2, "Eléctrico":2, "Acero":0.5, "Fuego":0.5, "Agua":0.5, "Hielo":0.5},
+            "Bicho": {"Volador":2, "Roca":2, "Fuego":2, "Lucha":0.5, "Tierra":0.5, "Planta":0.5},
+            "Dragón": {"Hielo":2, "Dragón":2, "Hada":2, "Fuego":0.5, "Agua":0.5, "Planta":0.5, "Eléctrico":0.5},
+            "Eléctrico": {"Tierra":2, "Volador":0.5, "Acero":0.5, "Eléctrico":0.5},
+            "Fantasma": {"Fantasma":2, "Siniestro":2, "Veneno":0.5, "Bicho":0.5, "Normal":0, "Lucha":0},
+            "Fuego": {"Tierra":2, "Roca":2, "Agua":2, "Bicho":0.5, "Acero":0.5, "Fuego":0.5, "Planta":0.5, "Hielo":0.5, "Hada":0.5},
+            "Hada": {"Veneno":2, "Acero":2, "Lucha":0.5, "Bicho":0.5, "Siniestro":0.5, "Dragón":0},
+            "Hielo": {"Lucha":2, "Roca":2, "Acero":2, "Fuego":2, "Hielo":0.5},
+            "Lucha": {"Volador":2, "Psíquico":2, "Hada":2, "Roca":0.5, "Bicho":0.5, "Siniestro":0.5},
+            "Normal": {"Lucha":2, "Fantasma":0},
+            "Planta": {"Volador":2, "Veneno":2, "Bicho":2, "Fuego":2, "Hielo":2, "Tierra":0.5, "Agua":0.5, "Planta":0.5, "Eléctrico":0.5},
+            "Psíquico": {"Bicho":2, "Fantasma":2, "Siniestro":2, "Lucha":0.5, "Psíquico":0.5},
+            "Roca": {"Lucha":2, "Tierra":2, "Acero":2, "Agua":2, "Planta":2, "Normal":0.5, "Volador":0.5, "Veneno":0.5, "Fuego":0.5},
+            "Siniestro": {"Lucha":2, "Bicho":2, "Hada":2, "Fantasma":0.5, "Siniestro":0.5, "Psíquico":0},
+            "Tierra": {"Agua":2, "Planta":2, "Hielo":2, "Veneno":0.5, "Roca":0.5, "Eléctrico":0},
+            "Veneno": {"Tierra":2, "Psíquico":2, "Lucha":0.5, "Veneno":0.5, "Bicho":0.5, "Planta":0.5, "Hada":0.5},
+            "Volador": {"Roca":2, "Eléctrico":2, "Hielo":2, "Lucha":0.5, "Bicho":0.5, "Planta":0.5, "Tierra":0}
+        }
+
+        self.selected_types = []
+
+        self.calc_win.grid_columnconfigure(0, weight=1)
+        self.calc_win.grid_rowconfigure(2, weight=1) 
+        self.calc_win.grid_rowconfigure(4, weight=2) 
+
+        tk.Label(self.calc_win, text="Calculadora de Debilidades", fg="#e94560", bg="#1a1a2e", font=("Arial", 12, "bold")).grid(row=0, column=0, pady=(15, 2), sticky="ew")
+        tk.Label(self.calc_win, text="Seleccioná 1 o 2 tipos tocando los botones:", fg="#a0a0c0", bg="#1a1a2e", font=("Arial", 9)).grid(row=1, column=0, pady=(0, 10), sticky="ew")
+
+        self.btns_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
+        self.btns_frame.grid(row=2, column=0, sticky="nsew", padx=15)
+        
+        for i in range(3):
+            self.btns_frame.grid_columnconfigure(i, weight=1)
+        for i in range(6):
+            self.btns_frame.grid_rowconfigure(i, weight=1)
+
+        self._render_type_buttons()
+
+        tk.Frame(self.calc_win, height=2, bg="#252538").grid(row=3, column=0, sticky="ew", padx=20, pady=15)
+        
+        self.results_frame = tk.Frame(self.calc_win, bg="#16213e")
+        self.results_frame.grid(row=4, column=0, sticky="nsew", padx=15, pady=(0, 15))
+        
+        self._calculate_types() 
+
+    def _render_type_buttons(self):
+        for widget in self.btns_frame.winfo_children():
+            widget.destroy()
+            
+        tipos = sorted(list(self.type_chart.keys()))
+        
+        for i, tipo in enumerate(tipos):
+            row = i // 3
+            col = i % 3
+            
+            is_selected = tipo in self.selected_types
+            bg_color = self.type_colors[tipo] if is_selected else "#202030"
+            fg_color = "#ffffff" if is_selected else self.type_colors[tipo]
+            
+            btn = tk.Button(self.btns_frame, text=tipo.upper(), font=("Arial", 9, "bold"), 
+                            bg=bg_color, fg=fg_color, relief="flat", 
+                            activebackground=self.type_colors[tipo], activeforeground="white",
+                            pady=4, cursor="hand2", 
+                            command=lambda t=tipo: self._toggle_type(t))
+            btn.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
+
+    def _toggle_type(self, tipo):
+        if tipo in self.selected_types:
+            self.selected_types.remove(tipo)
+        else:
+            if len(self.selected_types) >= 2:
+                self.selected_types.pop(0)
+            self.selected_types.append(tipo)
+            
+        self._render_type_buttons()
+        self._calculate_types()
+
+    def _create_type_tag(self, parent, tipo):
+        color = self.type_colors.get(tipo, "#444444")
+        lbl = tk.Label(parent, text=tipo.upper(), bg=color, fg="white", font=("Arial", 8, "bold"), width=10, pady=2)
+        return lbl
+
+    def _calculate_types(self):
+        for widget in self.results_frame.winfo_children():
+            widget.destroy()
+            
+        if not self.selected_types:
+            tk.Label(self.results_frame, text="\nAún no elegiste ningún tipo.\nTocá los botones de arriba.", fg="#606080", bg="#16213e", font=("Arial", 10)).pack(expand=True)
+            return
+            
+        all_types = list(self.type_chart.keys())
+        results = {t: 1.0 for t in all_types}
+        
+        for tipo_defensor in self.selected_types:
+            for tipo_atacante in all_types:
+                mult = self.type_chart[tipo_defensor].get(tipo_atacante, 1.0)
+                results[tipo_atacante] *= mult
+
+        categories = {
+            "💀 Débil (x4):": [t for t, v in results.items() if v == 4.0],
+            "🔻 Débil (x2):": [t for t, v in results.items() if v == 2.0],
+            "🛡️ Resist. (x0.5):": [t for t, v in results.items() if v == 0.5],
+            "🛡️🛡️ Súper Res. (x0.25):": [t for t, v in results.items() if v == 0.25],
+            "✨ INMUNE (x0):": [t for t, v in results.items() if v == 0.0],
+        }
+
+        inner_results = tk.Frame(self.results_frame, bg="#16213e")
+        inner_results.pack(expand=True)
+
+        tk.Label(inner_results, text=f"Análisis para: {' / '.join(self.selected_types).upper()}", fg="#ffffff", bg="#16213e", font=("Arial", 11, "bold")).pack(anchor="center", pady=(0, 15))
+        
+        has_weakness = False
+        for title, types_list in categories.items():
+            if types_list:
+                if "Débil" in title: has_weakness = True
+                
+                row_frame = tk.Frame(inner_results, bg="#16213e")
+                row_frame.pack(pady=4, anchor="center") 
+                
+                tk.Label(row_frame, text=title, fg="#a0a0c0", bg="#16213e", width=18, anchor="e", font=("Arial", 9, "bold")).pack(side="left", padx=(0, 10))
+                
+                tags_frame = tk.Frame(row_frame, bg="#16213e")
+                tags_frame.pack(side="left")
+                
+                for i, t in enumerate(types_list):
+                    r = i // 2 
+                    c = i % 2
+                    tag = self._create_type_tag(tags_frame, t)
+                    tag.grid(row=r, column=c, padx=2, pady=2)
+
+        if not has_weakness:
+            tk.Label(inner_results, text="¡No tiene debilidades destacadas!", fg="#4ade80", bg="#16213e", font=("Arial", 10, "bold")).pack(anchor="center", pady=10)
+
+    def _sync_calculator_with_search(self, api_types):
+        if not hasattr(self, 'calc_win') or not self.calc_win.winfo_exists():
+            return 
+
+        translator = {
+            "normal": "Normal", "fighting": "Lucha", "flying": "Volador",
+            "poison": "Veneno", "ground": "Tierra", "rock": "Roca",
+            "bug": "Bicho", "ghost": "Fantasma", "steel": "Acero",
+            "fire": "Fuego", "water": "Agua", "grass": "Planta",
+            "electric": "Eléctrico", "psychic": "Psíquico", "ice": "Hielo",
+            "dragon": "Dragón", "dark": "Siniestro", "fairy": "Hada"
+        }
+
+        self.selected_types.clear()
+        for t in api_types:
+            tipo_espanol = translator.get(t.lower())
+            if tipo_espanol:
+                self.selected_types.append(tipo_espanol)
+
+        self._render_type_buttons()
+        self._calculate_types()
+    
+    def _update_calc_ui(self, text):
+        self.result_text.config(state=tk.NORMAL)
+        self.result_text.delete(1.0, tk.END)
+        self.result_text.insert(tk.END, text)
+        self.result_text.config(state=tk.DISABLED)
     
     def _clean_api_name(self, api_name):
-        """
-        Limpia los sufijos de la API (-altered, -mega) conservando las excepciones
-        que legítimamente llevan guion en su nombre base para PokémonDB.
-        """
         exceptions = {
             "ho-oh", "porygon-z", "jangmo-o", "hakamo-o", "kommo-o",
             "tapu-koko", "tapu-lele", "tapu-bulu", "tapu-fini",
@@ -1168,7 +1405,6 @@ class PokemonFinderNLP:
         if api_name in exceptions:
             return api_name
         
-        # Eliminar cualquier sufijo a partir del primer guion (ej: giratina-altered -> giratina)
         if "-" in api_name:
             return api_name.split("-")[0]
         
@@ -1182,13 +1418,11 @@ class PokemonFinderNLP:
                 
                 for p in data['results']:
                     original_name = p['name'].lower()
-                    # Pasamos el nombre por nuestro filtro
                     clean_name = self._clean_api_name(original_name)
                     
                     self.known_pokemon.add(clean_name)
                     
                     poke_id = p['url'].strip('/').split('/')[-1]
-                    # Solo guardamos el ID si no existe todavía (prioriza las formas base sobre las megas)
                     if clean_name not in self.pokemon_ids:
                         self.pokemon_ids[clean_name] = poke_id
                 
@@ -1201,17 +1435,38 @@ class PokemonFinderNLP:
         except:
             self.root.after(0, lambda: self.status_var.set("⚠️ Error de red. Modo Offline."))
 
+    def _fetch_and_sync_types(self, name):
+        """Busca los tipos del Pokémon en la PokéAPI y actualiza la calculadora."""
+        try:
+            clean_name = self._clean_api_name(name.lower().strip())
+            poke_id = self.pokemon_ids.get(clean_name, clean_name)
+            
+            url = f"https://pokeapi.co/api/v2/pokemon/{poke_id}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                api_types = [t['type']['name'] for t in data['types']]
+                
+                self.root.after(0, lambda: self._sync_calculator_with_search(api_types))
+        except Exception as e:
+            print(f"No se pudieron obtener los tipos para {name}: {e}")
+
     def _search_pokemon(self, name):
         if not name: return
         
-        # Formateo estricto para PokemonDB (ej: "Mr. Mime" -> "mr-mime", "Farfetch'd" -> "farfetchd")
-        url_name = name.lower().strip()
-        url_name = re.sub(r'[^a-z0-9\-\s]', '', url_name) # Quita puntos, apóstrofes y símbolos raros
-        url_name = url_name.replace(" ", "-") # Reemplaza los espacios por guiones
+        threading.Thread(target=self._fetch_and_sync_types, args=(name,), daemon=True).start()
         
-        url = f"https://pokemondb.net/pokedex/{urllib.parse.quote(url_name)}"
+        if self.user_settings.get("silent_mode", False):
+            self.status_var.set(f"✅ Tipos de {name.capitalize()} leídos en la API.")
+            return
+
+        url_name = re.sub(r'[^a-z0-9]', '', name.lower()) 
+        url = f"https://dex.pokemonshowdown.com/pokemon/{url_name}"
+        
         try: 
-            webbrowser.open_new_tab(url)
+            new_tab = 0 if self.user_settings.get("reuse_tab", True) else 2
+            webbrowser.open(url, new=new_tab)
         except Exception as e: 
             print(e)
 
