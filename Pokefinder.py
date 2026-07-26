@@ -13,6 +13,8 @@ import difflib
 import sys
 import subprocess
 import shutil  
+import http.server
+import socketserver
 from PIL import Image, ImageTk 
 
 def resource_path(relative_path):
@@ -93,6 +95,17 @@ class PokemonFinderNLP:
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
         
+        import tkinter.ttk as ttk
+        self.style = ttk.Style()
+        if "clam" in self.style.theme_names():
+            self.style.theme_use("clam")
+        self.style.configure("Dark.Vertical.TScrollbar", 
+                             background="#252538", 
+                             troughcolor="#1a1a2e", 
+                             bordercolor="#16213e", 
+                             arrowcolor="white",
+                             relief="flat")
+        
         # --- CONFIGURAR DIRECTORIO DE GUARDADO ---
         self._setup_save_directory()
         # -----------------------------------------
@@ -136,6 +149,8 @@ class PokemonFinderNLP:
         self._load_user_settings()
         # -------------------------
                     
+        self._start_viewer_server()
+        
         self._build_ui()
         self._load_zones() 
         self._load_mappings() 
@@ -148,6 +163,53 @@ class PokemonFinderNLP:
         self.root.after(200, self._render_team_ui)
         
         self.root.mainloop()
+
+    def _start_viewer_server(self):
+        class ViewerHandler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(req):
+                if req.path == '/viewer':
+                    req.send_response(200)
+                    req.send_header('Content-type', 'text/html')
+                    req.end_headers()
+                    html = """<!DOCTYPE html>
+<html>
+<head><title>Pokefinder Visor</title></head>
+<body style="margin:0; overflow:hidden;">
+    <iframe id="f" style="width:100%; height:100vh; border:none;"></iframe>
+    <script>
+        let currentUrl = "";
+        function check() {
+            fetch('/url', {cache: "no-store"}).then(r => r.text()).then(url => {
+                if (url && url !== currentUrl) {
+                    currentUrl = url;
+                    document.getElementById('f').src = url;
+                }
+            }).catch(e => {});
+        }
+        setInterval(check, 1000);
+        check();
+    </script>
+</body>
+</html>"""
+                    req.wfile.write(html.encode('utf-8'))
+                elif req.path == '/url':
+                    req.send_response(200)
+                    req.send_header('Content-type', 'text/plain')
+                    req.end_headers()
+                    req.wfile.write(req.server.current_url.encode('utf-8'))
+                else:
+                    req.send_response(404)
+                    req.end_headers()
+            def log_message(self, format, *args):
+                pass
+                
+        try:
+            self.viewer_httpd = socketserver.TCPServer(("127.0.0.1", 0), ViewerHandler)
+            self.viewer_httpd.current_url = ""
+            self.viewer_port = self.viewer_httpd.server_address[1]
+            threading.Thread(target=self.viewer_httpd.serve_forever, daemon=True).start()
+        except Exception as e:
+            print("Error visor:", e)
 
     # ---------------------------------------------------------
     # GESTIÓN DEL DIRECTORIO DE GUARDADO Y AJUSTES
@@ -1061,16 +1123,31 @@ class PokemonFinderNLP:
         
         tk.Label(self.ask_win, text="¡El detector está en duda!\n¿Cuál es el Pokémon correcto?", fg="#ffdd88", bg="#16213e", font=("Arial", 10, "bold")).pack(pady=15)
         
-        frame_btns = tk.Frame(self.ask_win, bg="#16213e")
-        frame_btns.pack(fill="both", expand=True, padx=20)
+        canvas = tk.Canvas(self.ask_win, bg="#16213e", highlightthickness=0)
+        import tkinter.ttk as ttk
+        scrollbar = ttk.Scrollbar(self.ask_win, orient="vertical", command=canvas.yview, style="Dark.Vertical.TScrollbar")
+        
+        frame_btns = tk.Frame(canvas, bg="#16213e")
+        canvas.create_window((0, 0), window=frame_btns, anchor="nw")
+        
+        frame_btns.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="top", fill="both", expand=True, padx=10)
+        
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<Enter>", lambda e: self.ask_win.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: self.ask_win.unbind_all("<MouseWheel>"))
         
         for poke in options:
             btn = tk.Button(frame_btns, text=poke.capitalize(), bg="#e94560", fg="white", font=("Arial", 10, "bold"), relief="flat", cursor="hand2", 
                             command=lambda p=poke: self._save_user_choice(p, options, mapping_key, img))
             btn.pack(fill="x", pady=6)
             
-        tk.Button(frame_btns, text="❌ Cancelar Búsqueda", bg="#252538", fg="white", font=("Arial", 9), relief="flat", cursor="hand2", 
-                  command=lambda: self._cancel_ask(img)).pack(fill="x", pady=20)
+        tk.Button(self.ask_win, text="❌ Cancelar Búsqueda", bg="#252538", fg="white", font=("Arial", 9), relief="flat", cursor="hand2", 
+                  command=lambda: self._cancel_ask(img)).pack(fill="x", pady=(10, 20), padx=20)
 
     def _save_user_choice(self, chosen_poke, all_options, mapping_key, img):
         self.custom_mappings[mapping_key] = chosen_poke
@@ -1106,7 +1183,8 @@ class PokemonFinderNLP:
         tk.Label(self.map_win, text="Tu historial de correcciones:", fg="#4ade80", bg="#16213e", font=("Arial", 11, "bold")).pack(pady=12)
 
         canvas = tk.Canvas(self.map_win, bg="#16213e", highlightthickness=0)
-        scrollbar = tk.Scrollbar(self.map_win, orient="vertical", command=canvas.yview)
+        import tkinter.ttk as ttk
+        scrollbar = ttk.Scrollbar(self.map_win, orient="vertical", command=canvas.yview, style="Dark.Vertical.TScrollbar")
         self.map_frame = tk.Frame(canvas, bg="#16213e")
 
         self.map_frame.bind(
@@ -1119,6 +1197,11 @@ class PokemonFinderNLP:
 
         canvas.pack(side="left", fill="both", expand=True, padx=10)
         scrollbar.pack(side="right", fill="y")
+        
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<Enter>", lambda e: self.map_win.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: self.map_win.unbind_all("<MouseWheel>"))
 
         self._refresh_map_window()
 
@@ -1206,15 +1289,18 @@ class PokemonFinderNLP:
     # ---------------------------------------------------------
     def _open_type_calculator(self):
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.deiconify()
             self.calc_win.focus_force()
             return
 
         self.calc_win = tk.Toplevel()
         self.calc_win.title("🧮 Calculadora de Tipos")
         self.calc_win.geometry("440x720")
-        self.calc_win.minsize(380, 600) 
+        self.calc_win.minsize(200, 300) 
         self.calc_win.configure(bg="#1a1a2e")
-        self.calc_win.attributes("-topmost", True)
+        
+        self.is_calc_pinned = True
+        self.calc_win.attributes("-topmost", self.is_calc_pinned)
         
         try:
             self.calc_win.iconphoto(False, self.icon_img_window) 
@@ -1254,14 +1340,35 @@ class PokemonFinderNLP:
         self.selected_types = []
 
         self.calc_win.grid_columnconfigure(0, weight=1)
-        self.calc_win.grid_rowconfigure(2, weight=1) 
         self.calc_win.grid_rowconfigure(4, weight=2) 
 
-        tk.Label(self.calc_win, text="Calculadora de Debilidades", fg="#e94560", bg="#1a1a2e", font=("Arial", 12, "bold")).grid(row=0, column=0, pady=(15, 2), sticky="ew")
-        tk.Label(self.calc_win, text="Seleccioná 1 o 2 tipos tocando los botones:", fg="#a0a0c0", bg="#1a1a2e", font=("Arial", 9)).grid(row=1, column=0, pady=(0, 10), sticky="ew")
+        top_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
+        top_frame.grid(row=0, column=0, pady=(10, 5), sticky="ew")
+        
+        tk.Label(top_frame, text="🧮 Calculadora de Tipos", fg="#e94560", bg="#1a1a2e", font=("Arial", 11, "bold")).pack(pady=(0, 5))
+        
+        controls_frame = tk.Frame(top_frame, bg="#1a1a2e")
+        controls_frame.pack(anchor="center")
+        
+        self.opacity_var = tk.DoubleVar(value=1.0)
+        opacity_slider = tk.Scale(controls_frame, variable=self.opacity_var, from_=0.2, to=1.0, resolution=0.05, orient="horizontal", bg="#1a1a2e", fg="#a0a0c0", highlightthickness=0, length=70, showvalue=0, command=self._update_calc_opacity)
+        opacity_slider.pack(side="left", padx=5)
+        tk.Label(controls_frame, text="👁️", fg="#a0a0c0", bg="#1a1a2e").pack(side="left", padx=(0, 10))
+        
+        self.btn_pin = tk.Button(controls_frame, text="📌 Fija: SÍ", bg="#e94560", fg="white", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", command=self._toggle_calc_pin)
+        self.btn_pin.pack(side="left")
+
+        self.show_all_types = len(self.selected_types) == 0
+        
+        self.btn_toggle_types = tk.Button(self.calc_win, text="Ocultar Selector Manual" if self.show_all_types else "✏️ Elegir Tipos Manualmente", bg="#252538", fg="#ffaa00", font=("Arial", 9, "bold"), relief="flat", cursor="hand2", command=self._toggle_types_visibility)
+        self.btn_toggle_types.grid(row=1, column=0, pady=(0, 5), sticky="ew", padx=15)
 
         self.btns_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
-        self.btns_frame.grid(row=2, column=0, sticky="nsew", padx=15)
+        if self.show_all_types:
+            self.calc_win.grid_rowconfigure(2, weight=1)
+            self.btns_frame.grid(row=2, column=0, sticky="nsew", padx=15)
+        else:
+            self.calc_win.grid_rowconfigure(2, weight=0)
         
         for i in range(3):
             self.btns_frame.grid_columnconfigure(i, weight=1)
@@ -1272,10 +1379,57 @@ class PokemonFinderNLP:
 
         tk.Frame(self.calc_win, height=2, bg="#252538").grid(row=3, column=0, sticky="ew", padx=20, pady=15)
         
-        self.results_frame = tk.Frame(self.calc_win, bg="#16213e")
-        self.results_frame.grid(row=4, column=0, sticky="nsew", padx=15, pady=(0, 15))
+        self.results_container = tk.Frame(self.calc_win, bg="#16213e")
+        self.results_container.grid(row=4, column=0, sticky="nsew", padx=15, pady=(0, 15))
+        
+        self.results_canvas = tk.Canvas(self.results_container, bg="#16213e", highlightthickness=0)
+        import tkinter.ttk as ttk
+        self.results_scrollbar = ttk.Scrollbar(self.results_container, orient="vertical", command=self.results_canvas.yview, style="Dark.Vertical.TScrollbar")
+        self.results_canvas.configure(yscrollcommand=self.results_scrollbar.set)
+        
+        self.results_scrollbar.pack(side="right", fill="y")
+        self.results_canvas.pack(side="left", fill="both", expand=True)
+        
+        self.results_frame = tk.Frame(self.results_canvas, bg="#16213e")
+        self.canvas_window_id = self.results_canvas.create_window((0, 0), window=self.results_frame, anchor="n")
+        
+        def _on_frame_configure(event):
+            self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all"))
+        self.results_frame.bind("<Configure>", _on_frame_configure)
+        
+        def _on_canvas_configure(event):
+            self.results_canvas.itemconfig(self.canvas_window_id, width=event.width)
+        self.results_canvas.bind("<Configure>", _on_canvas_configure)
+        
+        def _on_mousewheel(event):
+            self.results_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            
+        self.results_canvas.bind("<Enter>", lambda e: self.calc_win.bind_all("<MouseWheel>", _on_mousewheel))
+        self.results_canvas.bind("<Leave>", lambda e: self.calc_win.unbind_all("<MouseWheel>"))
         
         self._calculate_types() 
+
+    def _toggle_types_visibility(self):
+        self.show_all_types = not self.show_all_types
+        if self.show_all_types:
+            self.btn_toggle_types.config(text="Ocultar Selector Manual")
+            self.calc_win.grid_rowconfigure(2, weight=1)
+            self.btns_frame.grid(row=2, column=0, sticky="nsew", padx=15)
+        else:
+            self.btn_toggle_types.config(text="✏️ Elegir Tipos Manualmente")
+            self.calc_win.grid_rowconfigure(2, weight=0)
+            self.btns_frame.grid_remove()
+
+    def _update_calc_opacity(self, val):
+        self.calc_win.attributes("-alpha", float(val))
+
+    def _toggle_calc_pin(self):
+        self.is_calc_pinned = not self.is_calc_pinned
+        self.calc_win.attributes("-topmost", self.is_calc_pinned)
+        if self.is_calc_pinned:
+            self.btn_pin.config(text="📌 Fija: SÍ", bg="#e94560")
+        else:
+            self.btn_pin.config(text="📌 Fijar", bg="#252538")
 
     def _render_type_buttons(self):
         for widget in self.btns_frame.winfo_children():
@@ -1339,22 +1493,22 @@ class PokemonFinderNLP:
         }
 
         inner_results = tk.Frame(self.results_frame, bg="#16213e")
-        inner_results.pack(expand=True)
+        inner_results.pack(expand=True, fill="both")
 
-        tk.Label(inner_results, text=f"Análisis para: {' / '.join(self.selected_types).upper()}", fg="#ffffff", bg="#16213e", font=("Arial", 11, "bold")).pack(anchor="center", pady=(0, 15))
+        tk.Label(inner_results, text=f"{' / '.join(self.selected_types).upper()}", fg="#ffffff", bg="#16213e", font=("Arial", 13, "bold"), wraplength=180).pack(anchor="center", pady=(0, 15))
         
         has_weakness = False
         for title, types_list in categories.items():
             if types_list:
                 if "Débil" in title: has_weakness = True
                 
-                row_frame = tk.Frame(inner_results, bg="#16213e")
-                row_frame.pack(pady=4, anchor="center") 
+                group_frame = tk.Frame(inner_results, bg="#16213e")
+                group_frame.pack(pady=5, fill="x")
                 
-                tk.Label(row_frame, text=title, fg="#a0a0c0", bg="#16213e", width=18, anchor="e", font=("Arial", 9, "bold")).pack(side="left", padx=(0, 10))
+                tk.Label(group_frame, text=title, fg="#a0a0c0", bg="#16213e", font=("Arial", 9, "bold")).pack(anchor="center", pady=(0, 3))
                 
-                tags_frame = tk.Frame(row_frame, bg="#16213e")
-                tags_frame.pack(side="left")
+                tags_frame = tk.Frame(group_frame, bg="#16213e")
+                tags_frame.pack(anchor="center")
                 
                 for i, t in enumerate(types_list):
                     r = i // 2 
@@ -1383,6 +1537,12 @@ class PokemonFinderNLP:
             tipo_espanol = translator.get(t.lower())
             if tipo_espanol:
                 self.selected_types.append(tipo_espanol)
+
+        self.show_all_types = False
+        if hasattr(self, 'btn_toggle_types') and self.calc_win.winfo_exists():
+            self.btn_toggle_types.config(text="✏️ Elegir Tipos Manualmente")
+            self.calc_win.grid_rowconfigure(2, weight=0)
+            self.btns_frame.grid_remove()
 
         self._render_type_buttons()
         self._calculate_types()
@@ -1438,8 +1598,19 @@ class PokemonFinderNLP:
     def _fetch_and_sync_types(self, name):
         """Busca los tipos del Pokémon en la PokéAPI y actualiza la calculadora."""
         try:
-            clean_name = self._clean_api_name(name.lower().strip())
-            poke_id = self.pokemon_ids.get(clean_name, clean_name)
+            raw_name = name.lower().strip()
+            api_format = raw_name.replace(" ", "-")
+            clean_name = self._clean_api_name(api_format)
+            
+            poke_id = None
+            if clean_name in self.pokemon_ids:
+                poke_id = self.pokemon_ids[clean_name]
+            elif api_format in self.pokemon_ids:
+                poke_id = self.pokemon_ids[api_format]
+            elif raw_name in self.pokemon_ids:
+                poke_id = self.pokemon_ids[raw_name]
+            else:
+                poke_id = re.sub(r'[^a-z0-9\-]', '', api_format)
             
             url = f"https://pokeapi.co/api/v2/pokemon/{poke_id}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -1450,10 +1621,13 @@ class PokemonFinderNLP:
                 
                 self.root.after(0, lambda: self._sync_calculator_with_search(api_types))
         except Exception as e:
-            print(f"No se pudieron obtener los tipos para {name}: {e}")
+            print(f"No se pudieron obtener los tipos para '{name}': {e}")
 
     def _search_pokemon(self, name):
         if not name: return
+        
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.root.after(0, self._open_type_calculator)
         
         threading.Thread(target=self._fetch_and_sync_types, args=(name,), daemon=True).start()
         
@@ -1465,8 +1639,14 @@ class PokemonFinderNLP:
         url = f"https://dex.pokemonshowdown.com/pokemon/{url_name}"
         
         try: 
-            new_tab = 0 if self.user_settings.get("reuse_tab", True) else 2
-            webbrowser.open(url, new=new_tab)
+            if self.user_settings.get("reuse_tab", True) and hasattr(self, 'viewer_httpd'):
+                self.viewer_httpd.current_url = url
+                if not getattr(self, 'viewer_opened', False):
+                    webbrowser.open(f"http://127.0.0.1:{self.viewer_port}/viewer")
+                    self.viewer_opened = True
+            else:
+                new_tab = 0 if self.user_settings.get("reuse_tab", True) else 2
+                webbrowser.open(url, new=new_tab)
         except Exception as e: 
             print(e)
 
