@@ -186,8 +186,13 @@ class PokemonFinderNLP:
                 }
             }).catch(e => {});
         }
+        function ping() {
+            fetch('/ping', {cache: "no-store"}).catch(e => {});
+        }
         setInterval(check, 1000);
+        setInterval(ping, 2000);
         check();
+        ping();
     </script>
 </body>
 </html>"""
@@ -197,6 +202,10 @@ class PokemonFinderNLP:
                     req.send_header('Content-type', 'text/plain')
                     req.end_headers()
                     req.wfile.write(req.server.current_url.encode('utf-8'))
+                elif req.path == '/ping':
+                    req.server.last_ping = time.time()
+                    req.send_response(200)
+                    req.end_headers()
                 else:
                     req.send_response(404)
                     req.end_headers()
@@ -204,12 +213,14 @@ class PokemonFinderNLP:
                 pass
                 
         try:
-            self.viewer_httpd = socketserver.TCPServer(("127.0.0.1", 0), ViewerHandler)
+            self.viewer_httpd = socketserver.TCPServer(("localhost", 0), ViewerHandler)
             self.viewer_httpd.current_url = ""
+            self.viewer_httpd.last_ping = time.time()
             self.viewer_port = self.viewer_httpd.server_address[1]
             threading.Thread(target=self.viewer_httpd.serve_forever, daemon=True).start()
         except Exception as e:
-            print("Error visor:", e)
+            print("Error iniciando el visor local:", e)
+            self.viewer_httpd = None # Fallback en caso de que el puerto sea bloqueado
 
     # ---------------------------------------------------------
     # GESTIÓN DEL DIRECTORIO DE GUARDADO Y AJUSTES
@@ -1639,16 +1650,23 @@ class PokemonFinderNLP:
         url = f"https://dex.pokemonshowdown.com/pokemon/{url_name}"
         
         try: 
-            if self.user_settings.get("reuse_tab", True) and hasattr(self, 'viewer_httpd'):
+            if self.user_settings.get("reuse_tab", True) and getattr(self, 'viewer_httpd', None):
                 self.viewer_httpd.current_url = url
+                
+                # Si la pestaña lleva más de 5 segundos sin enviar un ping, asumimos que fue cerrada.
+                if getattr(self, 'viewer_opened', False):
+                    if time.time() - self.viewer_httpd.last_ping > 5:
+                        self.viewer_opened = False
+                
                 if not getattr(self, 'viewer_opened', False):
-                    webbrowser.open(f"http://127.0.0.1:{self.viewer_port}/viewer")
+                    self.viewer_httpd.last_ping = time.time() # Reiniciamos el tiempo para evitar falsos positivos
+                    webbrowser.open(f"http://localhost:{self.viewer_port}/viewer")
                     self.viewer_opened = True
             else:
                 new_tab = 0 if self.user_settings.get("reuse_tab", True) else 2
                 webbrowser.open(url, new=new_tab)
         except Exception as e: 
-            print(e)
+            print(f"Error abriendo navegador: {e}")
 
 if __name__ == "__main__":
     import ctypes
