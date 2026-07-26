@@ -90,7 +90,15 @@ class PokemonFinderNLP:
 
         cached_title = "Pokefinder" 
         self.root.title(cached_title) 
-        self.root.geometry("440x730")
+        
+        # --- NUEVAS VARIABLES PARA STATS Y COMPARACIÓN ---
+        self.current_base_stats = {}  # Rival
+        self.rival_name = ""
+        self.our_base_stats = {}      # Nuestro Pokémon
+        self.our_name = ""
+        self.nature_modifiers = {"plus": None, "minus": None}       # Naturaleza Rival
+        self.our_nature_modifiers = {"plus": None, "minus": None}   # Naturaleza Nuestro
+        
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
@@ -220,7 +228,7 @@ class PokemonFinderNLP:
             threading.Thread(target=self.viewer_httpd.serve_forever, daemon=True).start()
         except Exception as e:
             print("Error iniciando el visor local:", e)
-            self.viewer_httpd = None # Fallback en caso de que el puerto sea bloqueado
+            self.viewer_httpd = None
 
     # ---------------------------------------------------------
     # GESTIÓN DEL DIRECTORIO DE GUARDADO Y AJUSTES
@@ -325,7 +333,6 @@ class PokemonFinderNLP:
         chk_silent.pack(anchor="w", padx=20, pady=5)
 
         tk.Button(set_win, text="💾 Guardar Ajustes", command=save_and_close, bg="#e94560", fg="white", font=("Arial", 9, "bold"), cursor="hand2").pack(pady=20)
-
 
     # ---------------------------------------------------------
     # SISTEMAS DE MEMORIA DE TEXTO Y EQUIPO
@@ -571,16 +578,13 @@ class PokemonFinderNLP:
             if os.path.getsize(new_exe_path) < 1000000:
                 raise Exception("El archivo descargado parece corrupto.")
             
-            # Borrado preventivo
             if os.path.exists(old_exe_path):
                 try: os.remove(old_exe_path)
                 except Exception: pass 
 
-            # Usar os.replace en vez de os.rename soluciona el problema de "archivo ya existe" en Windows
             try:
                 os.replace(exe_path, old_exe_path)
             except Exception:
-                # Fallback por si fallara la versión de Python o SO
                 try: os.rename(exe_path, old_exe_path)
                 except Exception: pass
 
@@ -1306,8 +1310,8 @@ class PokemonFinderNLP:
 
         self.calc_win = tk.Toplevel()
         self.calc_win.title("🧮 Calculadora de Tipos")
-        self.calc_win.geometry("440x720")
-        self.calc_win.minsize(200, 300) 
+        self.calc_win.geometry("480x850")
+        self.calc_win.minsize(300, 400) 
         self.calc_win.configure(bg="#1a1a2e")
         
         self.is_calc_pinned = True
@@ -1352,6 +1356,7 @@ class PokemonFinderNLP:
 
         self.calc_win.grid_columnconfigure(0, weight=1)
         self.calc_win.grid_rowconfigure(4, weight=2) 
+        self.calc_win.grid_rowconfigure(5, weight=2) # Peso asignado al contenedor de stats para escalar
 
         top_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
         top_frame.grid(row=0, column=0, pady=(10, 5), sticky="ew")
@@ -1388,10 +1393,10 @@ class PokemonFinderNLP:
 
         self._render_type_buttons()
 
-        tk.Frame(self.calc_win, height=2, bg="#252538").grid(row=3, column=0, sticky="ew", padx=20, pady=15)
+        tk.Frame(self.calc_win, height=2, bg="#252538").grid(row=3, column=0, sticky="ew", padx=20, pady=10)
         
         self.results_container = tk.Frame(self.calc_win, bg="#16213e")
-        self.results_container.grid(row=4, column=0, sticky="nsew", padx=15, pady=(0, 15))
+        self.results_container.grid(row=4, column=0, sticky="nsew", padx=15, pady=(0, 10))
         
         self.results_canvas = tk.Canvas(self.results_container, bg="#16213e", highlightthickness=0)
         import tkinter.ttk as ttk
@@ -1419,6 +1424,17 @@ class PokemonFinderNLP:
         self.results_canvas.bind("<Leave>", lambda e: self.calc_win.unbind_all("<MouseWheel>"))
         
         self._calculate_types() 
+        
+        # --- CONTENEDOR DE ESTADÍSTICAS ESCALABLE ---
+        self.stats_frame = tk.Frame(self.calc_win, bg="#16213e")
+        self.stats_frame.grid(row=5, column=0, sticky="nsew", padx=15, pady=(0, 15)) 
+        
+        # Cargar nuestro Pokémon por defecto desde el equipo si existe
+        valid_team = [p for p in self.team if p]
+        if valid_team and not self.our_name:
+            self._fetch_our_pokemon_stats(valid_team[0])
+        else:
+            self._render_stats_ui()
 
     def _toggle_types_visibility(self):
         self.show_all_types = not self.show_all_types
@@ -1558,6 +1574,249 @@ class PokemonFinderNLP:
         self._render_type_buttons()
         self._calculate_types()
     
+    def _sync_stats_with_search(self, stats_data, name=""):
+        if not hasattr(self, 'calc_win') or not self.calc_win.winfo_exists():
+            return
+            
+        self.rival_name = name.capitalize() if name else "Rival"
+        self.current_base_stats = {
+            "HP": stats_data.get("hp", 0),
+            "Attack": stats_data.get("attack", 0),
+            "Defense": stats_data.get("defense", 0),
+            "Sp. Atk": stats_data.get("special-attack", 0),
+            "Sp. Def": stats_data.get("special-defense", 0),
+            "Speed": stats_data.get("speed", 0)
+        }
+        self.nature_modifiers = {"plus": None, "minus": None} 
+        
+        # Cargar Pokémon de nuestro equipo si aún no se asignó alguno
+        if not self.our_name:
+            valid_team = [p for p in self.team if p]
+            if valid_team:
+                self._fetch_our_pokemon_stats(valid_team[0])
+                return
+
+        self._render_stats_ui()
+
+    def _fetch_our_pokemon_stats(self, name):
+        if not name or name == "(Ninguno)":
+            self.our_base_stats = {}
+            self.our_name = ""
+            self._render_stats_ui()
+            return
+
+        def do_fetch():
+            try:
+                raw_name = name.lower().strip()
+                api_format = raw_name.replace(" ", "-")
+                clean_name = self._clean_api_name(api_format)
+                
+                poke_id = self.pokemon_ids.get(clean_name) or self.pokemon_ids.get(api_format) or self.pokemon_ids.get(raw_name) or re.sub(r'[^a-z0-9\-]', '', api_format)
+                
+                url = f"https://pokeapi.co/api/v2/pokemon/{poke_id}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    stats = {s['stat']['name']: s['base_stat'] for s in data['stats']}
+                    
+                    self.our_base_stats = {
+                        "HP": stats.get("hp", 0),
+                        "Attack": stats.get("attack", 0),
+                        "Defense": stats.get("defense", 0),
+                        "Sp. Atk": stats.get("special-attack", 0),
+                        "Sp. Def": stats.get("special-defense", 0),
+                        "Speed": stats.get("speed", 0)
+                    }
+                    self.our_name = name.capitalize()
+                    self.our_nature_modifiers = {"plus": None, "minus": None}
+                    self.root.after(0, self._render_stats_ui)
+            except Exception as e:
+                print(f"Error al obtener estadísticas de nuestro Pokémon '{name}': {e}")
+
+        threading.Thread(target=do_fetch, daemon=True).start()
+
+    def _set_nature(self, stat_name, mod_type, is_rival=True):
+        target = self.nature_modifiers if is_rival else self.our_nature_modifiers
+        if target[mod_type] == stat_name:
+            target[mod_type] = None 
+        else:
+            target[mod_type] = stat_name
+            other_mod = "minus" if mod_type == "plus" else "plus"
+            if target[other_mod] == stat_name:
+                target[other_mod] = None
+                
+        self._render_stats_ui()
+
+    def _get_stat_color(self, val):
+        if val < 50: return "#ff4c4c"       # Rojo
+        if val < 75: return "#ff9e4c"       # Naranja
+        if val < 90: return "#f2e74e"       # Amarillo 
+        if val < 110: return "#a0e515"      # Verde limón
+        if val < 150: return "#4ade80"      # Verde
+        return "#00c853"                    # Verde oscuro
+
+    def _render_stats_ui(self):
+        for widget in self.stats_frame.winfo_children():
+            widget.destroy()
+
+        if not self.current_base_stats and not self.our_base_stats:
+            return
+
+        # Título principal
+        header_frame = tk.Frame(self.stats_frame, bg="#16213e")
+        header_frame.pack(fill="x", pady=(5, 5), padx=5)
+        tk.Label(header_frame, text="📊 Comparativa de Estadísticas", fg="#e94560", bg="#16213e", font=("Arial", 11, "bold")).pack()
+
+        # Fila de selectores y nombres
+        selector_frame = tk.Frame(self.stats_frame, bg="#16213e")
+        selector_frame.pack(fill="x", padx=5, pady=(0, 5))
+        selector_frame.columnconfigure(0, weight=1)
+        selector_frame.columnconfigure(1, weight=1)
+
+        rival_label_text = f"🎯 Rival: {self.rival_name}" if self.rival_name else "🎯 Rival: -"
+        tk.Label(selector_frame, text=rival_label_text, fg="#ff4c4c", bg="#16213e", font=("Arial", 9, "bold"), anchor="w").grid(row=0, column=0, sticky="w", padx=5)
+
+        our_frame = tk.Frame(selector_frame, bg="#16213e")
+        our_frame.grid(row=0, column=1, sticky="e", padx=5)
+
+        tk.Label(our_frame, text="🛡️ Nuestro:", fg="#4ade80", bg="#16213e", font=("Arial", 9, "bold")).pack(side="left", padx=(0, 2))
+
+        # Opciones para el selector de Nuestro Pokémon
+        options = ["(Ninguno)"]
+        team_members = [p.capitalize() for p in self.team if p]
+        options.extend(team_members)
+
+        selected_val = self.our_name if self.our_name in options else options[0]
+        selected_var = tk.StringVar(value=selected_val)
+
+        def on_our_select(choice):
+            self._fetch_our_pokemon_stats(choice)
+
+        dropdown = tk.OptionMenu(our_frame, selected_var, *options, command=on_our_select)
+        dropdown.config(bg="#252538", fg="white", activebackground="#e94560", activeforeground="white", highlightthickness=0, font=("Arial", 8, "bold"), bd=0)
+        dropdown["menu"].config(bg="#252538", fg="white")
+        dropdown.pack(side="left")
+
+        # Contenedor Grid Escalable
+        grid_frame = tk.Frame(self.stats_frame, bg="#16213e")
+        grid_frame.pack(fill="both", expand=True, padx=5, pady=2)
+
+        # Configuración para escalado adaptativo
+        grid_frame.columnconfigure(0, weight=0)  # Controles e info Rival
+        grid_frame.columnconfigure(1, weight=1)  # Barra Rival (escalable)
+        grid_frame.columnconfigure(2, weight=0)  # Nombre de la Stat
+        grid_frame.columnconfigure(3, weight=1)  # Barra Nuestro (escalable)
+        grid_frame.columnconfigure(4, weight=0)  # Controles e info Nuestro
+
+        stats_keys = ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]
+        rival_total = 0
+        our_total = 0
+
+        for i, stat_name in enumerate(stats_keys):
+            grid_frame.rowconfigure(i, weight=1)
+            
+            rival_base = self.current_base_stats.get(stat_name, 0)
+            our_base = self.our_base_stats.get(stat_name, 0)
+
+            # Cálculo de naturaleza Rival
+            rival_mod = rival_base
+            rival_fg = "#ffffff"
+            if self.nature_modifiers["plus"] == stat_name:
+                rival_mod = int(rival_base * 1.1)
+                rival_fg = "#4ade80"
+            elif self.nature_modifiers["minus"] == stat_name:
+                rival_mod = int(rival_base * 0.9)
+                rival_fg = "#e94560"
+
+            # Cálculo de naturaleza Nuestro
+            our_mod = our_base
+            our_fg = "#ffffff"
+            if self.our_nature_modifiers["plus"] == stat_name:
+                our_mod = int(our_base * 1.1)
+                our_fg = "#4ade80"
+            elif self.our_nature_modifiers["minus"] == stat_name:
+                our_mod = int(our_base * 0.9)
+                our_fg = "#e94560"
+
+            rival_total += rival_mod
+            our_total += our_mod
+
+            # --- IZQUIERDA: Valor y botones del Rival ---
+            rival_val_frame = tk.Frame(grid_frame, bg="#16213e")
+            rival_val_frame.grid(row=i, column=0, padx=2, pady=2, sticky="e")
+
+            if stat_name != "HP" and self.current_base_stats:
+                is_plus = self.nature_modifiers["plus"] == stat_name
+                btn_plus = tk.Button(rival_val_frame, text="+", bg="#4ade80" if is_plus else "#252538", fg="#1a1a2e" if is_plus else "white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "plus", is_rival=True))
+                btn_plus.pack(side="left", padx=1)
+
+                is_minus = self.nature_modifiers["minus"] == stat_name
+                btn_minus = tk.Button(rival_val_frame, text="-", bg="#e94560" if is_minus else "#252538", fg="white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "minus", is_rival=True))
+                btn_minus.pack(side="left", padx=1)
+
+            tk.Label(rival_val_frame, text=str(rival_mod) if self.current_base_stats else "-", fg=rival_fg, bg="#16213e", font=("Arial", 9, "bold"), width=3, anchor="e").pack(side="left", padx=2)
+
+            # --- BARRA DEL RIVAL ---
+            rival_canvas = tk.Canvas(grid_frame, height=14, bg="#1a1a2e", highlightthickness=0)
+            rival_canvas.grid(row=i, column=1, padx=2, pady=2, sticky="ew")
+
+            # --- CENTRO: Nombre de la Stat ---
+            tk.Label(grid_frame, text=stat_name, fg="#a0a0c0", bg="#16213e", font=("Arial", 8, "bold"), width=7, anchor="center").grid(row=i, column=2, padx=2, pady=2)
+
+            # --- BARRA NUESTRA ---
+            our_canvas = tk.Canvas(grid_frame, height=14, bg="#1a1a2e", highlightthickness=0)
+            our_canvas.grid(row=i, column=3, padx=2, pady=2, sticky="ew")
+
+            # --- DERECHA: Valor y botones de Nuestro Pokémon ---
+            our_val_frame = tk.Frame(grid_frame, bg="#16213e")
+            our_val_frame.grid(row=i, column=4, padx=2, pady=2, sticky="w")
+
+            tk.Label(our_val_frame, text=str(our_mod) if self.our_base_stats else "-", fg=our_fg, bg="#16213e", font=("Arial", 9, "bold"), width=3, anchor="w").pack(side="left", padx=2)
+
+            if stat_name != "HP" and self.our_base_stats:
+                is_plus = self.our_nature_modifiers["plus"] == stat_name
+                btn_plus = tk.Button(our_val_frame, text="+", bg="#4ade80" if is_plus else "#252538", fg="#1a1a2e" if is_plus else "white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "plus", is_rival=False))
+                btn_plus.pack(side="left", padx=1)
+
+                is_minus = self.our_nature_modifiers["minus"] == stat_name
+                btn_minus = tk.Button(our_val_frame, text="-", bg="#e94560" if is_minus else "#252538", fg="white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "minus", is_rival=False))
+                btn_minus.pack(side="left", padx=1)
+
+            # Renderizado adaptativo de barras al cambiar el tamaño de la ventana
+            def draw_bars(event, r_canv=rival_canvas, r_val=rival_mod if self.current_base_stats else 0,
+                          o_canv=our_canvas, o_val=our_mod if self.our_base_stats else 0):
+                # Barra Rival (Crece de derecha a izquierda hacia el centro)
+                r_canv.delete("all")
+                rw = r_canv.winfo_width()
+                rh = r_canv.winfo_height()
+                if rw > 1 and r_val > 0:
+                    bar_w = min(rw, int((r_val / 255) * rw))
+                    r_canv.create_rectangle(rw - bar_w, 0, rw, rh, fill=self._get_stat_color(r_val), outline="")
+
+                # Barra Nuestra (Crece de izquierda a derecha desde el centro)
+                o_canv.delete("all")
+                ow = o_canv.winfo_width()
+                oh = o_canv.winfo_height()
+                if ow > 1 and o_val > 0:
+                    bar_w = min(ow, int((o_val / 255) * ow))
+                    o_canv.create_rectangle(0, 0, bar_w, oh, fill=self._get_stat_color(o_val), outline="")
+
+            rival_canvas.bind("<Configure>", draw_bars)
+            our_canvas.bind("<Configure>", draw_bars)
+
+        # Fila de Totales
+        totals_frame = tk.Frame(self.stats_frame, bg="#16213e")
+        totals_frame.pack(fill="x", padx=10, pady=(5, 5))
+        totals_frame.columnconfigure(0, weight=1)
+        totals_frame.columnconfigure(1, weight=1)
+
+        r_tot_txt = f"Total: {rival_total}" if self.current_base_stats else "Total: -"
+        o_tot_txt = f"Total: {our_total}" if self.our_base_stats else "Total: -"
+
+        tk.Label(totals_frame, text=r_tot_txt, fg="#ffdd88", bg="#16213e", font=("Arial", 9, "bold"), anchor="w").grid(row=0, column=0, sticky="w", padx=5)
+        tk.Label(totals_frame, text=o_tot_txt, fg="#ffdd88", bg="#16213e", font=("Arial", 9, "bold"), anchor="e").grid(row=0, column=1, sticky="e", padx=5)
+    
     def _update_calc_ui(self, text):
         self.result_text.config(state=tk.NORMAL)
         self.result_text.delete(1.0, tk.END)
@@ -1630,7 +1889,11 @@ class PokemonFinderNLP:
                 data = json.loads(response.read().decode())
                 api_types = [t['type']['name'] for t in data['types']]
                 
+                # Extraer stats de la API
+                stats_data = {s['stat']['name']: s['base_stat'] for s in data['stats']}
+                
                 self.root.after(0, lambda: self._sync_calculator_with_search(api_types))
+                self.root.after(0, lambda: self._sync_stats_with_search(stats_data, name))
         except Exception as e:
             print(f"No se pudieron obtener los tipos para '{name}': {e}")
 
@@ -1669,31 +1932,57 @@ class PokemonFinderNLP:
             print(f"Error abriendo navegador: {e}")
 
 if __name__ == "__main__":
+
     import ctypes
+
     import sys
+
     
+
     try:
+
         is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+
     except:
+
         is_admin = False
+
         
+
     if not is_admin:
+
         try:
+
             if getattr(sys, 'frozen', False):
+
                 argumentos = " ".join(sys.argv[1:])
+
             else:
+
                 argumentos = " ".join([f'"{arg}"' for arg in sys.argv])
+
                 
+
             ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, argumentos, None, 1)
+
             if ret <= 32:
+
                 import tkinter as tk
+
                 from tkinter import messagebox
+
                 root = tk.Tk()
+
                 root.withdraw()
+
                 messagebox.showerror("Permisos denegados", "El programa necesita permisos de Administrador para instalar Tesseract y funcionar correctamente.\n\nPor favor, hacé clic derecho en el ejecutable y seleccioná 'Ejecutar como administrador', o aceptá la solicitud de permisos.")
+
                 root.destroy()
+
         except Exception:
+
             pass
-        sys.exit(0)
-        
+
+        sys.exit(0) 
+
     PokemonFinderNLP()
