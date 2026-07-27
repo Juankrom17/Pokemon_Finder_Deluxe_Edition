@@ -812,6 +812,8 @@ class PokemonFinderNLP:
     def _start_selection(self):
         if not MSS_AVAILABLE or self.is_capturing: return
         self.root.withdraw()
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.withdraw()
         self.root.update()
 
         self.overlay = tk.Toplevel()
@@ -850,6 +852,9 @@ class PokemonFinderNLP:
 
     def _ask_key(self, coords):
         self.root.deiconify()
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.deiconify()
+
         self.key_win = tk.Toplevel(self.root)
         self.key_win.title("⌨️ Asignar Tecla")
         self.key_win.geometry("300x120")
@@ -974,6 +979,11 @@ class PokemonFinderNLP:
         
         self.root.update_idletasks() 
         self.root.withdraw()
+        
+        # Ocultamos la calculadora también para que no estorbe en la captura
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.withdraw()
+            
         self.root.update()
         
         threading.Thread(target=self._async_grab, args=(coords,), daemon=True).start()
@@ -1012,7 +1022,10 @@ class PokemonFinderNLP:
                     cfg = f"--oem 3 --psm {psm} -l eng"
                     text = pytesseract.image_to_string(variant_img, config=cfg).strip()
                     
+                    # NUEVO: Limpiamos los saltos de línea molestos para evitar estirar la interfaz
                     clean_display = re.sub(r'[^a-zA-Z0-9\s]', '', text)
+                    clean_display = " ".join(clean_display.split())
+                    
                     if len(clean_display) > len(full_text_detected):
                         full_text_detected = clean_display 
                         
@@ -1045,7 +1058,12 @@ class PokemonFinderNLP:
         self.last_full_text = full_text_detected
         self.last_raw_clean = re.sub(r'[^a-zA-Z]', '', full_text_detected.lower())
 
-        self.root.after(0, lambda: self.raw_text_var.set(f"Texto detectado: {full_text_detected[:100]}..."))
+        # NUEVO: Truncamos visualmente el texto para que no estire la ventana hacia abajo
+        display_str = " ".join(full_text_detected.split())
+        if len(display_str) > 55:
+            display_str = display_str[:55] + "..."
+            
+        self.root.after(0, lambda: self.raw_text_var.set(f"Texto leído: {display_str}"))
 
         if not found_pokemon_list:
             self.root.after(0, lambda: self._ask_manual_pokemon(full_text_detected, img))
@@ -1091,7 +1109,10 @@ class PokemonFinderNLP:
             self._search_pokemon(manual_poke.capitalize())
 
     def _ask_manual_pokemon(self, full_text, img):
-        self.root.deiconify() 
+        self.root.deiconify()
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.deiconify()
+            
         manual_poke = simpledialog.askstring("Pokémon no detectado", f"Texto leído: '{full_text}'\n\nNo se reconoció. Ingresá el nombre correcto para buscarlo y recordarlo:", parent=self.root)
         
         if manual_poke:
@@ -1125,6 +1146,8 @@ class PokemonFinderNLP:
 
     def _ask_user_for_pokemon(self, options, mapping_key, img):
         self.root.deiconify() 
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.deiconify()
         
         self.ask_win = tk.Toplevel(self.root)
         self.ask_win.title("🤔 Múltiples coincidencias")
@@ -1274,7 +1297,10 @@ class PokemonFinderNLP:
         self.root.after(0, self._restore_ui)
 
     def _restore_ui(self):
-        self.root.iconify() 
+        self.root.deiconify() # Restaurar ventana principal correctamente
+        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
+            self.calc_win.deiconify() # Restauramos la calc
+            
         self.status_var.set("Listo.")
         self.is_capturing = False
 
@@ -1356,7 +1382,7 @@ class PokemonFinderNLP:
 
         self.calc_win.grid_columnconfigure(0, weight=1)
         self.calc_win.grid_rowconfigure(4, weight=2) 
-        self.calc_win.grid_rowconfigure(5, weight=2) # Peso asignado al contenedor de stats para escalar
+        self.calc_win.grid_rowconfigure(5, weight=2) 
 
         top_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
         top_frame.grid(row=0, column=0, pady=(10, 5), sticky="ew")
@@ -1429,7 +1455,6 @@ class PokemonFinderNLP:
         self.stats_frame = tk.Frame(self.calc_win, bg="#16213e")
         self.stats_frame.grid(row=5, column=0, sticky="nsew", padx=15, pady=(0, 15)) 
         
-        # Cargar nuestro Pokémon por defecto desde el equipo si existe
         valid_team = [p for p in self.team if p]
         if valid_team and not self.our_name:
             self._fetch_our_pokemon_stats(valid_team[0])
@@ -1589,7 +1614,6 @@ class PokemonFinderNLP:
         }
         self.nature_modifiers = {"plus": None, "minus": None} 
         
-        # Cargar Pokémon de nuestro equipo si aún no se asignó alguno
         if not self.our_name:
             valid_team = [p for p in self.team if p]
             if valid_team:
@@ -1663,12 +1687,10 @@ class PokemonFinderNLP:
         if not self.current_base_stats and not self.our_base_stats:
             return
 
-        # Título principal
         header_frame = tk.Frame(self.stats_frame, bg="#16213e")
         header_frame.pack(fill="x", pady=(5, 5), padx=5)
         tk.Label(header_frame, text="📊 Comparativa de Estadísticas", fg="#e94560", bg="#16213e", font=("Arial", 11, "bold")).pack()
 
-        # Fila de selectores y nombres
         selector_frame = tk.Frame(self.stats_frame, bg="#16213e")
         selector_frame.pack(fill="x", padx=5, pady=(0, 5))
         selector_frame.columnconfigure(0, weight=1)
@@ -1682,7 +1704,6 @@ class PokemonFinderNLP:
 
         tk.Label(our_frame, text="🛡️ Nuestro:", fg="#4ade80", bg="#16213e", font=("Arial", 9, "bold")).pack(side="left", padx=(0, 2))
 
-        # Opciones para el selector de Nuestro Pokémon
         options = ["(Ninguno)"]
         team_members = [p.capitalize() for p in self.team if p]
         options.extend(team_members)
@@ -1698,18 +1719,20 @@ class PokemonFinderNLP:
         dropdown["menu"].config(bg="#252538", fg="white")
         dropdown.pack(side="left")
 
-        # Contenedor Grid Escalable
         grid_frame = tk.Frame(self.stats_frame, bg="#16213e")
         grid_frame.pack(fill="both", expand=True, padx=5, pady=2)
 
-        # Configuración para escalado adaptativo
-        grid_frame.columnconfigure(0, weight=0)  # Controles e info Rival
-        grid_frame.columnconfigure(1, weight=1)  # Barra Rival (escalable)
-        grid_frame.columnconfigure(2, weight=0)  # Nombre de la Stat
-        grid_frame.columnconfigure(3, weight=1)  # Barra Nuestro (escalable)
-        grid_frame.columnconfigure(4, weight=0)  # Controles e info Nuestro
+        # NUEVO: Minzise incorporado para evitar colapsos al encoger la ventana
+        grid_frame.columnconfigure(0, weight=0, minsize=40)  
+        grid_frame.columnconfigure(1, weight=1)  
+        grid_frame.columnconfigure(2, weight=0, minsize=30)  
+        grid_frame.columnconfigure(3, weight=1)  
+        grid_frame.columnconfigure(4, weight=0, minsize=40)  
 
         stats_keys = ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]
+        # NUEVO: Nombres más cortos y agradables para la grilla central
+        stats_display = {"HP": "HP", "Attack": "Atk", "Defense": "Def", "Sp. Atk": "SpA", "Sp. Def": "SpD", "Speed": "Spe"}
+        
         rival_total = 0
         our_total = 0
 
@@ -1719,7 +1742,6 @@ class PokemonFinderNLP:
             rival_base = self.current_base_stats.get(stat_name, 0)
             our_base = self.our_base_stats.get(stat_name, 0)
 
-            # Cálculo de naturaleza Rival
             rival_mod = rival_base
             rival_fg = "#ffffff"
             if self.nature_modifiers["plus"] == stat_name:
@@ -1729,7 +1751,6 @@ class PokemonFinderNLP:
                 rival_mod = int(rival_base * 0.9)
                 rival_fg = "#e94560"
 
-            # Cálculo de naturaleza Nuestro
             our_mod = our_base
             our_fg = "#ffffff"
             if self.our_nature_modifiers["plus"] == stat_name:
@@ -1742,7 +1763,6 @@ class PokemonFinderNLP:
             rival_total += rival_mod
             our_total += our_mod
 
-            # --- IZQUIERDA: Valor y botones del Rival ---
             rival_val_frame = tk.Frame(grid_frame, bg="#16213e")
             rival_val_frame.grid(row=i, column=0, padx=2, pady=2, sticky="e")
 
@@ -1755,24 +1775,22 @@ class PokemonFinderNLP:
                 btn_minus = tk.Button(rival_val_frame, text="-", bg="#e94560" if is_minus else "#252538", fg="white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "minus", is_rival=True))
                 btn_minus.pack(side="left", padx=1)
 
-            tk.Label(rival_val_frame, text=str(rival_mod) if self.current_base_stats else "-", fg=rival_fg, bg="#16213e", font=("Arial", 9, "bold"), width=3, anchor="e").pack(side="left", padx=2)
+            # NUEVO: Quitado width fijo que rompía UI al colapsar
+            tk.Label(rival_val_frame, text=str(rival_mod) if self.current_base_stats else "-", fg=rival_fg, bg="#16213e", font=("Arial", 9, "bold"), anchor="e").pack(side="left", padx=2)
 
-            # --- BARRA DEL RIVAL ---
             rival_canvas = tk.Canvas(grid_frame, height=14, bg="#1a1a2e", highlightthickness=0)
             rival_canvas.grid(row=i, column=1, padx=2, pady=2, sticky="ew")
 
-            # --- CENTRO: Nombre de la Stat ---
-            tk.Label(grid_frame, text=stat_name, fg="#a0a0c0", bg="#16213e", font=("Arial", 8, "bold"), width=7, anchor="center").grid(row=i, column=2, padx=2, pady=2)
+            # NUEVO: Reflejando la abreviación y menor padding horizontal
+            tk.Label(grid_frame, text=stats_display[stat_name], fg="#a0a0c0", bg="#16213e", font=("Arial", 8, "bold"), width=4, anchor="center").grid(row=i, column=2, padx=1, pady=2)
 
-            # --- BARRA NUESTRA ---
             our_canvas = tk.Canvas(grid_frame, height=14, bg="#1a1a2e", highlightthickness=0)
             our_canvas.grid(row=i, column=3, padx=2, pady=2, sticky="ew")
 
-            # --- DERECHA: Valor y botones de Nuestro Pokémon ---
             our_val_frame = tk.Frame(grid_frame, bg="#16213e")
             our_val_frame.grid(row=i, column=4, padx=2, pady=2, sticky="w")
 
-            tk.Label(our_val_frame, text=str(our_mod) if self.our_base_stats else "-", fg=our_fg, bg="#16213e", font=("Arial", 9, "bold"), width=3, anchor="w").pack(side="left", padx=2)
+            tk.Label(our_val_frame, text=str(our_mod) if self.our_base_stats else "-", fg=our_fg, bg="#16213e", font=("Arial", 9, "bold"), anchor="w").pack(side="left", padx=2)
 
             if stat_name != "HP" and self.our_base_stats:
                 is_plus = self.our_nature_modifiers["plus"] == stat_name
@@ -1783,10 +1801,8 @@ class PokemonFinderNLP:
                 btn_minus = tk.Button(our_val_frame, text="-", bg="#e94560" if is_minus else "#252538", fg="white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "minus", is_rival=False))
                 btn_minus.pack(side="left", padx=1)
 
-            # Renderizado adaptativo de barras al cambiar el tamaño de la ventana
             def draw_bars(event, r_canv=rival_canvas, r_val=rival_mod if self.current_base_stats else 0,
                           o_canv=our_canvas, o_val=our_mod if self.our_base_stats else 0):
-                # Barra Rival (Crece de derecha a izquierda hacia el centro)
                 r_canv.delete("all")
                 rw = r_canv.winfo_width()
                 rh = r_canv.winfo_height()
@@ -1794,7 +1810,6 @@ class PokemonFinderNLP:
                     bar_w = min(rw, int((r_val / 255) * rw))
                     r_canv.create_rectangle(rw - bar_w, 0, rw, rh, fill=self._get_stat_color(r_val), outline="")
 
-                # Barra Nuestra (Crece de izquierda a derecha desde el centro)
                 o_canv.delete("all")
                 ow = o_canv.winfo_width()
                 oh = o_canv.winfo_height()
@@ -1805,7 +1820,6 @@ class PokemonFinderNLP:
             rival_canvas.bind("<Configure>", draw_bars)
             our_canvas.bind("<Configure>", draw_bars)
 
-        # Fila de Totales
         totals_frame = tk.Frame(self.stats_frame, bg="#16213e")
         totals_frame.pack(fill="x", padx=10, pady=(5, 5))
         totals_frame.columnconfigure(0, weight=1)
@@ -1866,7 +1880,6 @@ class PokemonFinderNLP:
             self.root.after(0, lambda: self.status_var.set("⚠️ Error de red. Modo Offline."))
 
     def _fetch_and_sync_types(self, name):
-        """Busca los tipos del Pokémon en la PokéAPI y actualiza la calculadora."""
         try:
             raw_name = name.lower().strip()
             api_format = raw_name.replace(" ", "-")
@@ -1889,7 +1902,6 @@ class PokemonFinderNLP:
                 data = json.loads(response.read().decode())
                 api_types = [t['type']['name'] for t in data['types']]
                 
-                # Extraer stats de la API
                 stats_data = {s['stat']['name']: s['base_stat'] for s in data['stats']}
                 
                 self.root.after(0, lambda: self._sync_calculator_with_search(api_types))
@@ -1916,13 +1928,12 @@ class PokemonFinderNLP:
             if self.user_settings.get("reuse_tab", True) and getattr(self, 'viewer_httpd', None):
                 self.viewer_httpd.current_url = url
                 
-                # Si la pestaña lleva más de 5 segundos sin enviar un ping, asumimos que fue cerrada.
                 if getattr(self, 'viewer_opened', False):
                     if time.time() - self.viewer_httpd.last_ping > 5:
                         self.viewer_opened = False
                 
                 if not getattr(self, 'viewer_opened', False):
-                    self.viewer_httpd.last_ping = time.time() # Reiniciamos el tiempo para evitar falsos positivos
+                    self.viewer_httpd.last_ping = time.time() 
                     webbrowser.open(f"http://localhost:{self.viewer_port}/viewer")
                     self.viewer_opened = True
             else:
@@ -1932,57 +1943,31 @@ class PokemonFinderNLP:
             print(f"Error abriendo navegador: {e}")
 
 if __name__ == "__main__":
-
     import ctypes
-
     import sys
 
-    
-
     try:
-
         is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-
     except:
-
         is_admin = False
 
-        
-
     if not is_admin:
-
         try:
-
             if getattr(sys, 'frozen', False):
-
                 argumentos = " ".join(sys.argv[1:])
-
             else:
-
                 argumentos = " ".join([f'"{arg}"' for arg in sys.argv])
 
-                
-
             ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, argumentos, None, 1)
-
             if ret <= 32:
-
                 import tkinter as tk
-
                 from tkinter import messagebox
-
                 root = tk.Tk()
-
                 root.withdraw()
-
                 messagebox.showerror("Permisos denegados", "El programa necesita permisos de Administrador para instalar Tesseract y funcionar correctamente.\n\nPor favor, hacé clic derecho en el ejecutable y seleccioná 'Ejecutar como administrador', o aceptá la solicitud de permisos.")
-
                 root.destroy()
-
         except Exception:
-
             pass
-
         sys.exit(0) 
 
     PokemonFinderNLP()
