@@ -978,11 +978,19 @@ class PokemonFinderNLP:
         self.debug_var.set("(Procesando...)")
         
         self.root.update_idletasks() 
-        self.root.withdraw()
         
-        # Ocultamos la calculadora también para que no estorbe en la captura
+        # --- FIX: Guardamos el estado actual para no des-minimizar si ya lo estaba ---
+        self.was_iconified = (self.root.state() == 'iconic')
+        if not self.was_iconified:
+            self.root.withdraw()
+        
+        # Ocultamos la calculadora también para que no estorbe, guardando si estaba minimizada
+        self.calc_was_iconified = False
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
-            self.calc_win.withdraw()
+            self.calc_was_iconified = (self.calc_win.state() == 'iconic')
+            if not self.calc_was_iconified:
+                self.calc_win.withdraw()
+        # -----------------------------------------------------------------------------
             
         self.root.update()
         
@@ -1297,9 +1305,20 @@ class PokemonFinderNLP:
         self.root.after(0, self._restore_ui)
 
     def _restore_ui(self):
-        self.root.deiconify() # Restaurar ventana principal correctamente
+        # --- FIX: Restaurar respetando si estaban minimizadas previamente ---
+        if getattr(self, 'was_iconified', False):
+            if self.root.state() != 'iconic':
+                self.root.iconify()
+        else:
+            self.root.deiconify() 
+            
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
-            self.calc_win.deiconify() # Restauramos la calc
+            if getattr(self, 'calc_was_iconified', False):
+                if self.calc_win.state() != 'iconic':
+                    self.calc_win.iconify()
+            else:
+                self.calc_win.deiconify() # Restauramos la calc
+        # --------------------------------------------------------------------
             
         self.status_var.set("Listo.")
         self.is_capturing = False
@@ -1912,8 +1931,10 @@ class PokemonFinderNLP:
     def _search_pokemon(self, name):
         if not name: return
         
+        # FIX: Evitamos traer la calculadora al frente bruscamente si el programa principal está minimizado.
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
-            self.root.after(0, self._open_type_calculator)
+            if self.root.state() != 'iconic':
+                self.root.after(0, self._open_type_calculator)
         
         threading.Thread(target=self._fetch_and_sync_types, args=(name,), daemon=True).start()
         
