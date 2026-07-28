@@ -798,11 +798,15 @@ class PokemonFinderNLP:
         name = simpledialog.askstring("Añadir al Equipo", "Ingresá el nombre exacto del Pokémon:", parent=self.root)
         if name:
             name = name.lower().strip()
-            if name in self.known_pokemon or not self.pokemon_ids:
-                self.team[index] = name
+            api_format = name.replace(" ", "-")
+            
+            # Ahora priorizamos variantes y nombres exactos
+            if name in self.known_pokemon or api_format in self.pokemon_ids or not self.pokemon_ids:
+                poke_to_save = api_format if api_format in self.pokemon_ids else name
+                self.team[index] = poke_to_save
                 self._save_team()
                 self._render_team_ui()
-                self.status_var.set(f"✅ {name.capitalize()} añadido al equipo.")
+                self.status_var.set(f"✅ {poke_to_save.capitalize()} añadido al equipo.")
             else:
                 messagebox.showwarning("No encontrado", f"No reconozco a '{name}'. Asegurate de escribirlo bien.", parent=self.root)
 
@@ -1795,7 +1799,8 @@ class PokemonFinderNLP:
                 api_format = raw_name.replace(" ", "-")
                 clean_name = self._clean_api_name(api_format)
                 
-                poke_id = self.pokemon_ids.get(clean_name) or self.pokemon_ids.get(api_format) or self.pokemon_ids.get(raw_name) or re.sub(r'[^a-z0-9\-]', '', api_format)
+                # CORRECCIÓN: Priorizamos api_format primero para que cargue estadísticas de variantes correctamente
+                poke_id = self.pokemon_ids.get(api_format) or self.pokemon_ids.get(clean_name) or self.pokemon_ids.get(raw_name) or re.sub(r'[^a-z0-9\-]', '', api_format)
                 
                 url = f"https://pokeapi.co/api/v2/pokemon/{poke_id}"
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -2023,8 +2028,12 @@ class PokemonFinderNLP:
                     self.known_pokemon.add(clean_name)
                     
                     poke_id = p['url'].strip('/').split('/')[-1]
+                    
+                    # CORRECCIÓN: Guardamos tanto la forma base como la variación exacta en el diccionario
                     if clean_name not in self.pokemon_ids:
                         self.pokemon_ids[clean_name] = poke_id
+                        
+                    self.pokemon_ids[original_name] = poke_id
                 
             for poke in self.custom_fixes.values():
                 self.known_pokemon.add(poke.lower())
@@ -2042,10 +2051,12 @@ class PokemonFinderNLP:
             clean_name = self._clean_api_name(api_format)
             
             poke_id = None
-            if clean_name in self.pokemon_ids:
-                poke_id = self.pokemon_ids[clean_name]
-            elif api_format in self.pokemon_ids:
+            
+            # CORRECCIÓN: Priorizamos 'api_format' para que cuando pidamos un 'alola' o 'galar', lo busque exactamente así
+            if api_format in self.pokemon_ids:
                 poke_id = self.pokemon_ids[api_format]
+            elif clean_name in self.pokemon_ids:
+                poke_id = self.pokemon_ids[clean_name]
             elif raw_name in self.pokemon_ids:
                 poke_id = self.pokemon_ids[raw_name]
             else:
@@ -2100,50 +2111,17 @@ class PokemonFinderNLP:
         url_name = re.sub(r'[^a-z0-9\-]', '', name.lower().replace(" ", "-")) 
         url = f"https://dex.pokemonshowdown.com/pokemon/{url_name}"
         
+        # CORRECCIÓN: Método de apertura del navegador completado para que funcione el visor de la pestaña reutilizable
         try: 
             if self.user_settings.get("reuse_tab", True) and getattr(self, 'viewer_httpd', None):
                 self.viewer_httpd.current_url = url
-                
-                if getattr(self, 'viewer_opened', False):
-                    if time.time() - self.viewer_httpd.last_ping > 120:
-                        self.viewer_opened = False
-                
-                if not getattr(self, 'viewer_opened', False):
-                    self.viewer_httpd.last_ping = time.time() 
+                if time.time() - self.viewer_httpd.last_ping > 5:
                     webbrowser.open(f"http://localhost:{self.viewer_port}/viewer")
-                    self.viewer_opened = True
             else:
-                new_tab = 0 if self.user_settings.get("reuse_tab", True) else 2
-                webbrowser.open(url, new=new_tab)
-        except Exception as e: 
-            print(f"Error abriendo navegador: {e}")
+                webbrowser.open(url)
+        except Exception as e:
+            print(f"Error abriendo web: {e}")
+            webbrowser.open(url)
 
 if __name__ == "__main__":
-    import ctypes
-    import sys
-
-    try:
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        is_admin = False
-
-    if not is_admin:
-        try:
-            if getattr(sys, 'frozen', False):
-                argumentos = " ".join(sys.argv[1:])
-            else:
-                argumentos = " ".join([f'"{arg}"' for arg in sys.argv])
-
-            ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, argumentos, None, 1)
-            if ret <= 32:
-                import tkinter as tk
-                from tkinter import messagebox
-                root = tk.Tk()
-                root.withdraw()
-                messagebox.showerror("Permisos denegados", "El programa necesita permisos de Administrador para instalar Tesseract y funcionar correctamente.\n\nPor favor, hacé clic derecho en el ejecutable y seleccioná 'Ejecutar como administrador', o aceptá la solicitud de permisos.")
-                root.destroy()
-        except Exception:
-            pass
-        sys.exit(0) 
-
     PokemonFinderNLP()
