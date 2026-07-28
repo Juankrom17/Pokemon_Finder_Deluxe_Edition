@@ -15,7 +15,6 @@ import subprocess
 import shutil  
 import http.server
 import socketserver
-from PIL import Image, ImageTk 
 
 def resource_path(relative_path):
     try:
@@ -98,6 +97,7 @@ class PokemonFinderNLP:
         self.our_name = ""
         self.nature_modifiers = {"plus": None, "minus": None}       # Naturaleza Rival
         self.our_nature_modifiers = {"plus": None, "minus": None}   # Naturaleza Nuestro
+        self.current_forms = []       # Formas alternativas
         
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
@@ -153,7 +153,12 @@ class PokemonFinderNLP:
         # -------------------------
 
         # --- AJUSTES DE USUARIO ---
-        self.user_settings = {"reuse_tab": True, "silent_mode": False}
+        self.user_settings = {
+            "reuse_tab": True, 
+            "silent_mode": False,
+            "f8_vk": 0x77,       # F8 por defecto
+            "f8_name": "F8"
+        }
         self._load_user_settings()
         # -------------------------
                     
@@ -199,6 +204,9 @@ class PokemonFinderNLP:
         }
         setInterval(check, 1000);
         setInterval(ping, 2000);
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) { ping(); check(); }
+        });
         check();
         ping();
     </script>
@@ -309,16 +317,58 @@ class PokemonFinderNLP:
     def _open_settings(self):
         set_win = tk.Toplevel(self.root)
         set_win.title("⚙️ Ajustes")
-        set_win.geometry("340x220")
+        set_win.geometry("360x300")
         set_win.configure(bg="#16213e")
         set_win.attributes("-topmost", True)
         set_win.transient(self.root)
         set_win.grab_set()
 
-        tk.Label(set_win, text="Ajustes de Búsqueda", fg="#e94560", bg="#16213e", font=("Arial", 11, "bold")).pack(pady=10)
+        tk.Label(set_win, text="Ajustes de Búsqueda y Teclas", fg="#e94560", bg="#16213e", font=("Arial", 11, "bold")).pack(pady=10)
 
         var_reuse = tk.BooleanVar(value=self.user_settings.get("reuse_tab", True))
         var_silent = tk.BooleanVar(value=self.user_settings.get("silent_mode", False))
+
+        chk_reuse = tk.Checkbutton(set_win, text="Intentar cargar en la misma pestaña abierta", variable=var_reuse, bg="#16213e", fg="#a0a0c0", selectcolor="#252538", activebackground="#16213e", activeforeground="white")
+        chk_reuse.pack(anchor="w", padx=20, pady=3)
+
+        chk_silent = tk.Checkbutton(set_win, text="Modo Silencioso (No abrir Showdown,\nsolo actualizar la calculadora de tipos)", variable=var_silent, bg="#16213e", fg="#a0a0c0", selectcolor="#252538", activebackground="#16213e", activeforeground="white", justify="left")
+        chk_silent.pack(anchor="w", padx=20, pady=3)
+
+        tk.Frame(set_win, height=1, bg="#252538").pack(fill="x", padx=20, pady=10)
+
+        # --- RECONFIGURAR TECLA PRINCIPAL ---
+        frame_key = tk.Frame(set_win, bg="#16213e")
+        frame_key.pack(fill="x", padx=20, pady=5)
+        
+        lbl_current_key = tk.Label(frame_key, text=f"Tecla Principal: {self.user_settings.get('f8_name', 'F8')}", fg="#4ade80", bg="#16213e", font=("Arial", 9, "bold"))
+        lbl_current_key.pack(side="left")
+
+        def prompt_rebind_f8():
+            rebind_win = tk.Toplevel(set_win)
+            rebind_win.title("⌨️ Nueva Tecla Principal")
+            rebind_win.geometry("280x100")
+            rebind_win.configure(bg="#16213e")
+            rebind_win.attributes("-topmost", True)
+            rebind_win.transient(set_win)
+            rebind_win.grab_set()
+            rebind_win.focus_force()
+
+            tk.Label(rebind_win, text="Presioná la nueva tecla principal...", fg="#ffdd88", bg="#16213e", font=("Arial", 10, "bold")).pack(pady=25)
+
+            def on_key_press(event):
+                vk = event.keycode
+                name = event.keysym.upper()
+                self.user_settings["f8_vk"] = vk
+                self.user_settings["f8_name"] = name
+                self._save_user_settings()
+                lbl_current_key.config(text=f"Tecla Principal: {name}")
+                if hasattr(self, 'btn_cap_main'):
+                    self.btn_cap_main.config(text=f"+ Nueva caja de diálogo ({name})")
+                rebind_win.destroy()
+
+            rebind_win.bind("<Key>", on_key_press)
+
+        tk.Button(frame_key, text="✏️ Cambiar Tecla", command=prompt_rebind_f8, bg="#252538", fg="white", font=("Arial", 8, "bold"), relief="flat", cursor="hand2").pack(side="right")
 
         def save_and_close():
             self.user_settings["reuse_tab"] = var_reuse.get()
@@ -326,13 +376,7 @@ class PokemonFinderNLP:
             self._save_user_settings()
             set_win.destroy()
 
-        chk_reuse = tk.Checkbutton(set_win, text="Intentar cargar en la misma pestaña abierta", variable=var_reuse, bg="#16213e", fg="#a0a0c0", selectcolor="#252538", activebackground="#16213e", activeforeground="white")
-        chk_reuse.pack(anchor="w", padx=20, pady=5)
-
-        chk_silent = tk.Checkbutton(set_win, text="Modo Silencioso (No abrir Showdown,\nsolo actualizar la calculadora de tipos)", variable=var_silent, bg="#16213e", fg="#a0a0c0", selectcolor="#252538", activebackground="#16213e", activeforeground="white", justify="left")
-        chk_silent.pack(anchor="w", padx=20, pady=5)
-
-        tk.Button(set_win, text="💾 Guardar Ajustes", command=save_and_close, bg="#e94560", fg="white", font=("Arial", 9, "bold"), cursor="hand2").pack(pady=20)
+        tk.Button(set_win, text="💾 Guardar Ajustes", command=save_and_close, bg="#e94560", fg="white", font=("Arial", 9, "bold"), cursor="hand2").pack(pady=15)
 
     # ---------------------------------------------------------
     # SISTEMAS DE MEMORIA DE TEXTO Y EQUIPO
@@ -623,7 +667,8 @@ class PokemonFinderNLP:
     # HARDWARE POLLING Y UI
     # ---------------------------------------------------------
     def _start_hardware_polling(self):
-        if user32.GetAsyncKeyState(0x77) & 0x8000:
+        f8_vk = self.user_settings.get("f8_vk", 0x77)
+        if user32.GetAsyncKeyState(f8_vk) & 0x8000:
             if not self.f8_pressed:
                 self.f8_pressed = True
                 if not self.is_capturing and not self.overlay:
@@ -665,7 +710,10 @@ class PokemonFinderNLP:
         frame_cap.pack(fill="x", padx=15, pady=(10, 2))
 
         tk.Label(frame_cap, text="Trazá cajas de diálogo. Se guardarán automáticamente.", fg="#a0a0c0", bg="#1a1a2e", font=("Arial", 8), wraplength=380, justify="left").pack(anchor="w", pady=(0, 4))
-        tk.Button(frame_cap, text="+ Nueva caja de diálogo (F8)", command=self._start_selection, bg="#e94560", fg="white", font=("Arial", 11, "bold"), relief="flat", cursor="hand2", pady=4).pack(fill="x")
+        
+        f8_name = self.user_settings.get("f8_name", "F8")
+        self.btn_cap_main = tk.Button(frame_cap, text=f"+ Nueva caja de diálogo ({f8_name})", command=self._start_selection, bg="#e94560", fg="white", font=("Arial", 11, "bold"), relief="flat", cursor="hand2", pady=4)
+        self.btn_cap_main.pack(fill="x")
         
         tk.Button(frame_cap, text="⚙️ Gestionar / Borrar Zonas", command=self._manage_zones, bg="#252538", fg="#ffdd88", font=("Arial", 9, "bold"), relief="flat", cursor="hand2", pady=2).pack(fill="x", pady=(4, 0))
         
@@ -811,9 +859,20 @@ class PokemonFinderNLP:
     # ---------------------------------------------------------
     def _start_selection(self):
         if not MSS_AVAILABLE or self.is_capturing: return
-        self.root.withdraw()
+        
+        self.is_capturing = True # Bloqueamos cualquier otra acción mientras se traza la caja
+        
+        # Guardamos los estados de ventana tal y como estaban
+        self.was_iconified = (self.root.state() == 'iconic')
+        if not self.was_iconified:
+            self.root.withdraw()
+            
+        self.calc_was_iconified = False
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
-            self.calc_win.withdraw()
+            self.calc_was_iconified = (self.calc_win.state() == 'iconic')
+            if not self.calc_was_iconified:
+                self.calc_win.withdraw()
+                
         self.root.update()
 
         self.overlay = tk.Toplevel()
@@ -828,7 +887,15 @@ class PokemonFinderNLP:
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        self.overlay.bind("<Escape>", lambda e: self._close_overlay())
+        
+        # Soportamos múltiples formas seguras de cancelar la captura manual
+        self.overlay.bind("<Escape>", lambda e: self._cancel_selection())
+        self.overlay.bind("<Button-3>", lambda e: self._cancel_selection()) # Click derecho cancela
+
+    def _cancel_selection(self):
+        """Método unificado que destruye la selección manual abortada de manera segura."""
+        self._close_overlay()
+        self._restore_ui()
 
     def _on_press(self, event):
         self.start_x, self.start_y = event.x_root, event.y_root
@@ -845,16 +912,17 @@ class PokemonFinderNLP:
         x1, y1 = min(self.start_x, end_x), min(self.start_y, end_y)
         x2, y2 = max(self.start_x, end_x), max(self.start_y, end_y)
         
-        if x2 - x1 < 8 or y2 - y1 < 8: return
+        # Validación de cancelación por recuadro nulo o ínfimo
+        if x2 - x1 < 8 or y2 - y1 < 8: 
+            self._restore_ui() 
+            return
         
         coords = (x1, y1, x2, y2)
         self.root.after(100, lambda: self._ask_key(coords))
 
     def _ask_key(self, coords):
-        self.root.deiconify()
-        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
-            self.calc_win.deiconify()
-
+        self._restore_ui() # Asegura que is_capturing sea False y la UI retome su visual normal
+        
         self.key_win = tk.Toplevel(self.root)
         self.key_win.title("⌨️ Asignar Tecla")
         self.key_win.geometry("300x120")
@@ -864,6 +932,9 @@ class PokemonFinderNLP:
         self.key_win.transient(self.root)
         self.key_win.grab_set()
         self.key_win.focus_force()
+        
+        # Limpiamos estados en caso de que el usuario presione la X de la ventana modal
+        self.key_win.protocol("WM_DELETE_WINDOW", self.key_win.destroy) 
         
         tk.Label(self.key_win, text="Presioná la tecla para buscar en esta zona\n(Ej: F4, Q, 1, etc.)", fg="#4ade80", bg="#16213e", font=("Arial", 10, "bold")).pack(pady=30)
         
@@ -900,12 +971,12 @@ class PokemonFinderNLP:
 
     def _manage_zones(self):
         if not self.zones:
-            messagebox.showinfo("Zonas", "No hay zonas activas para borrar.", parent=self.root)
+            messagebox.showinfo("Zonas", "No hay zonas activas para gestionar.", parent=self.root)
             return
 
         self.manage_win = tk.Toplevel(self.root)
         self.manage_win.title("⚙️ Gestionar Zonas")
-        self.manage_win.geometry("280x350")
+        self.manage_win.geometry("340x380")
         self.manage_win.configure(bg="#16213e")
         self.manage_win.attributes("-topmost", True)
         
@@ -933,8 +1004,44 @@ class PokemonFinderNLP:
             row.pack(fill="x", pady=4)
             
             tk.Label(row, text=f"Tecla: {data['name']}", fg="#4ade80", bg="#1a1a2e", font=("Arial", 10, "bold")).pack(side="left")
-            tk.Button(row, text="❌ Borrar", bg="#e94560", fg="white", font=("Arial", 8, "bold"), relief="flat", cursor="hand2",
-                      command=lambda k=vk: self._delete_single_zone(k)).pack(side="right")
+            
+            btn_frame = tk.Frame(row, bg="#1a1a2e")
+            btn_frame.pack(side="right")
+            
+            tk.Button(btn_frame, text="✏️ Cambiar", bg="#252538", fg="#ffaa00", font=("Arial", 8, "bold"), relief="flat", cursor="hand2",
+                      command=lambda k=vk: self._rebind_single_zone(k)).pack(side="left", padx=2)
+                      
+            tk.Button(btn_frame, text="❌ Borrar", bg="#e94560", fg="white", font=("Arial", 8, "bold"), relief="flat", cursor="hand2",
+                      command=lambda k=vk: self._delete_single_zone(k)).pack(side="left", padx=2)
+
+    def _rebind_single_zone(self, old_vk):
+        rebind_win = tk.Toplevel(self.manage_win)
+        rebind_win.title("⌨️ Cambiar Tecla de Zona")
+        rebind_win.geometry("280x100")
+        rebind_win.configure(bg="#16213e")
+        rebind_win.attributes("-topmost", True)
+        rebind_win.transient(self.manage_win)
+        rebind_win.grab_set()
+        rebind_win.focus_force()
+
+        tk.Label(rebind_win, text="Presioná la nueva tecla para esta zona...", fg="#ffdd88", bg="#16213e", font=("Arial", 9, "bold")).pack(pady=25)
+
+        def on_key_press(event):
+            new_vk = event.keycode
+            new_name = event.keysym.upper()
+            
+            if old_vk in self.zones:
+                zone_data = self.zones.pop(old_vk)
+                zone_data["name"] = new_name
+                zone_data["pressed"] = False
+                self.zones[new_vk] = zone_data
+                self._save_zones_to_disk()
+                self._update_zones_ui()
+                self._refresh_manage_window()
+                self.status_var.set(f"✅ Tecla actualizada a '{new_name}'.")
+            rebind_win.destroy()
+
+        rebind_win.bind("<Key>", on_key_press)
 
     def _delete_single_zone(self, vk):
         if vk in self.zones:
@@ -979,18 +1086,15 @@ class PokemonFinderNLP:
         
         self.root.update_idletasks() 
         
-        # --- FIX: Guardamos el estado actual para no des-minimizar si ya lo estaba ---
         self.was_iconified = (self.root.state() == 'iconic')
         if not self.was_iconified:
             self.root.withdraw()
         
-        # Ocultamos la calculadora también para que no estorbe, guardando si estaba minimizada
         self.calc_was_iconified = False
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
             self.calc_was_iconified = (self.calc_win.state() == 'iconic')
             if not self.calc_was_iconified:
                 self.calc_win.withdraw()
-        # -----------------------------------------------------------------------------
             
         self.root.update()
         
@@ -1030,7 +1134,6 @@ class PokemonFinderNLP:
                     cfg = f"--oem 3 --psm {psm} -l eng"
                     text = pytesseract.image_to_string(variant_img, config=cfg).strip()
                     
-                    # NUEVO: Limpiamos los saltos de línea molestos para evitar estirar la interfaz
                     clean_display = re.sub(r'[^a-zA-Z0-9\s]', '', text)
                     clean_display = " ".join(clean_display.split())
                     
@@ -1066,7 +1169,6 @@ class PokemonFinderNLP:
         self.last_full_text = full_text_detected
         self.last_raw_clean = re.sub(r'[^a-zA-Z]', '', full_text_detected.lower())
 
-        # NUEVO: Truncamos visualmente el texto para que no estire la ventana hacia abajo
         display_str = " ".join(full_text_detected.split())
         if len(display_str) > 55:
             display_str = display_str[:55] + "..."
@@ -1093,6 +1195,7 @@ class PokemonFinderNLP:
                 self.root.after(0, lambda: self._ask_user_for_pokemon(found_pokemon_list, mapping_key, img))
 
     def _correct_last_capture(self):
+        self.is_capturing = False 
         if not hasattr(self, 'last_raw_clean') or not self.last_raw_clean:
             messagebox.showwarning("Aviso", "Primero tenés que hacer una captura para poder corregirla.", parent=self.root)
             return
@@ -1106,15 +1209,16 @@ class PokemonFinderNLP:
 
         if manual_poke:
             manual_poke = manual_poke.lower().strip()
-            self.custom_fixes[self.last_raw_clean] = manual_poke
-            self._save_custom_fixes()
-            
-            self.known_pokemon.add(manual_poke)
-            
-            self.debug_var.set(f"✔️ Aprendido: Ese texto es {manual_poke.capitalize()}")
-            self.status_var.set("✅ Corrección guardada exitosamente.")
-            
-            self._search_pokemon(manual_poke.capitalize())
+            if manual_poke:
+                self.custom_fixes[self.last_raw_clean] = manual_poke
+                self._save_custom_fixes()
+                
+                self.known_pokemon.add(manual_poke)
+                
+                self.debug_var.set(f"✔️ Aprendido: Ese texto es {manual_poke.capitalize()}")
+                self.status_var.set("✅ Corrección guardada exitosamente.")
+                
+                self._search_pokemon(manual_poke.capitalize())
 
     def _ask_manual_pokemon(self, full_text, img):
         self.root.deiconify()
@@ -1305,7 +1409,6 @@ class PokemonFinderNLP:
         self.root.after(0, self._restore_ui)
 
     def _restore_ui(self):
-        # --- FIX: Restaurar respetando si estaban minimizadas previamente ---
         if getattr(self, 'was_iconified', False):
             if self.root.state() != 'iconic':
                 self.root.iconify()
@@ -1317,8 +1420,7 @@ class PokemonFinderNLP:
                 if self.calc_win.state() != 'iconic':
                     self.calc_win.iconify()
             else:
-                self.calc_win.deiconify() # Restauramos la calc
-        # --------------------------------------------------------------------
+                self.calc_win.deiconify()
             
         self.status_var.set("Listo.")
         self.is_capturing = False
@@ -1355,7 +1457,7 @@ class PokemonFinderNLP:
 
         self.calc_win = tk.Toplevel()
         self.calc_win.title("🧮 Calculadora de Tipos")
-        self.calc_win.geometry("480x850")
+        self.calc_win.geometry("480x880")
         self.calc_win.minsize(300, 400) 
         self.calc_win.configure(bg="#1a1a2e")
         
@@ -1400,8 +1502,8 @@ class PokemonFinderNLP:
         self.selected_types = []
 
         self.calc_win.grid_columnconfigure(0, weight=1)
-        self.calc_win.grid_rowconfigure(4, weight=2) 
         self.calc_win.grid_rowconfigure(5, weight=2) 
+        self.calc_win.grid_rowconfigure(6, weight=2) 
 
         top_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
         top_frame.grid(row=0, column=0, pady=(10, 5), sticky="ew")
@@ -1419,17 +1521,22 @@ class PokemonFinderNLP:
         self.btn_pin = tk.Button(controls_frame, text="📌 Fija: SÍ", bg="#e94560", fg="white", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", command=self._toggle_calc_pin)
         self.btn_pin.pack(side="left")
 
+        # --- CONTENEDOR DE FORMAS ALTERNATIVAS ---
+        self.forms_container = tk.Frame(self.calc_win, bg="#1a1a2e")
+        self.forms_container.grid(row=1, column=0, pady=(0, 5), sticky="ew", padx=15)
+        self._render_forms_ui()
+
         self.show_all_types = len(self.selected_types) == 0
         
         self.btn_toggle_types = tk.Button(self.calc_win, text="Ocultar Selector Manual" if self.show_all_types else "✏️ Elegir Tipos Manualmente", bg="#252538", fg="#ffaa00", font=("Arial", 9, "bold"), relief="flat", cursor="hand2", command=self._toggle_types_visibility)
-        self.btn_toggle_types.grid(row=1, column=0, pady=(0, 5), sticky="ew", padx=15)
+        self.btn_toggle_types.grid(row=2, column=0, pady=(0, 5), sticky="ew", padx=15)
 
         self.btns_frame = tk.Frame(self.calc_win, bg="#1a1a2e")
         if self.show_all_types:
-            self.calc_win.grid_rowconfigure(2, weight=1)
-            self.btns_frame.grid(row=2, column=0, sticky="nsew", padx=15)
+            self.calc_win.grid_rowconfigure(3, weight=1)
+            self.btns_frame.grid(row=3, column=0, sticky="nsew", padx=15)
         else:
-            self.calc_win.grid_rowconfigure(2, weight=0)
+            self.calc_win.grid_rowconfigure(3, weight=0)
         
         for i in range(3):
             self.btns_frame.grid_columnconfigure(i, weight=1)
@@ -1438,10 +1545,10 @@ class PokemonFinderNLP:
 
         self._render_type_buttons()
 
-        tk.Frame(self.calc_win, height=2, bg="#252538").grid(row=3, column=0, sticky="ew", padx=20, pady=10)
+        tk.Frame(self.calc_win, height=2, bg="#252538").grid(row=4, column=0, sticky="ew", padx=20, pady=10)
         
         self.results_container = tk.Frame(self.calc_win, bg="#16213e")
-        self.results_container.grid(row=4, column=0, sticky="nsew", padx=15, pady=(0, 10))
+        self.results_container.grid(row=5, column=0, sticky="nsew", padx=15, pady=(0, 10))
         
         self.results_canvas = tk.Canvas(self.results_container, bg="#16213e", highlightthickness=0)
         import tkinter.ttk as ttk
@@ -1472,7 +1579,7 @@ class PokemonFinderNLP:
         
         # --- CONTENEDOR DE ESTADÍSTICAS ESCALABLE ---
         self.stats_frame = tk.Frame(self.calc_win, bg="#16213e")
-        self.stats_frame.grid(row=5, column=0, sticky="nsew", padx=15, pady=(0, 15)) 
+        self.stats_frame.grid(row=6, column=0, sticky="nsew", padx=15, pady=(0, 15)) 
         
         valid_team = [p for p in self.team if p]
         if valid_team and not self.our_name:
@@ -1480,15 +1587,46 @@ class PokemonFinderNLP:
         else:
             self._render_stats_ui()
 
+    def _render_forms_ui(self):
+        if not hasattr(self, 'forms_container'): return
+        for widget in self.forms_container.winfo_children():
+            widget.destroy()
+
+        if not self.current_forms or len(self.current_forms) <= 1:
+            self.forms_container.grid_remove()
+            return
+
+        self.forms_container.grid()
+        tk.Label(self.forms_container, text="⚡ Formas / Variantes:", fg="#ffdd88", bg="#1a1a2e", font=("Arial", 8, "bold")).pack(anchor="w", pady=(0, 2))
+        
+        buttons_frame = tk.Frame(self.forms_container, bg="#1a1a2e")
+        buttons_frame.pack(fill="x")
+
+        for form in self.current_forms:
+            lbl = form["label"]
+            api_name = form["api_name"]
+            btn = tk.Button(buttons_frame, text=lbl, bg="#252538", fg="#4ade80", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", padx=5, pady=2,
+                            command=lambda a=api_name: self._search_pokemon(a))
+            btn.pack(side="left", padx=2, pady=2)
+
+    def _format_form_label(self, var_name, species_name):
+        if species_name and var_name.startswith(species_name + "-"):
+            suffix = var_name[len(species_name)+1:]
+            return " ".join([w.capitalize() for w in suffix.split("-")])
+        parts = var_name.split("-")
+        if len(parts) > 1:
+            return " ".join([w.capitalize() for w in parts[1:]])
+        return var_name.capitalize()
+
     def _toggle_types_visibility(self):
         self.show_all_types = not self.show_all_types
         if self.show_all_types:
             self.btn_toggle_types.config(text="Ocultar Selector Manual")
-            self.calc_win.grid_rowconfigure(2, weight=1)
-            self.btns_frame.grid(row=2, column=0, sticky="nsew", padx=15)
+            self.calc_win.grid_rowconfigure(3, weight=1)
+            self.btns_frame.grid(row=3, column=0, sticky="nsew", padx=15)
         else:
             self.btn_toggle_types.config(text="✏️ Elegir Tipos Manualmente")
-            self.calc_win.grid_rowconfigure(2, weight=0)
+            self.calc_win.grid_rowconfigure(3, weight=0)
             self.btns_frame.grid_remove()
 
     def _update_calc_opacity(self, val):
@@ -1590,7 +1728,7 @@ class PokemonFinderNLP:
         if not has_weakness:
             tk.Label(inner_results, text="¡No tiene debilidades destacadas!", fg="#4ade80", bg="#16213e", font=("Arial", 10, "bold")).pack(anchor="center", pady=10)
 
-    def _sync_calculator_with_search(self, api_types):
+    def _sync_calculator_with_search(self, api_types, forms_list=None):
         if not hasattr(self, 'calc_win') or not self.calc_win.winfo_exists():
             return 
 
@@ -1609,10 +1747,13 @@ class PokemonFinderNLP:
             if tipo_espanol:
                 self.selected_types.append(tipo_espanol)
 
+        self.current_forms = forms_list or []
+        self._render_forms_ui()
+
         self.show_all_types = False
         if hasattr(self, 'btn_toggle_types') and self.calc_win.winfo_exists():
             self.btn_toggle_types.config(text="✏️ Elegir Tipos Manualmente")
-            self.calc_win.grid_rowconfigure(2, weight=0)
+            self.calc_win.grid_rowconfigure(3, weight=0)
             self.btns_frame.grid_remove()
 
         self._render_type_buttons()
@@ -1741,7 +1882,6 @@ class PokemonFinderNLP:
         grid_frame = tk.Frame(self.stats_frame, bg="#16213e")
         grid_frame.pack(fill="both", expand=True, padx=5, pady=2)
 
-        # NUEVO: Minzise incorporado para evitar colapsos al encoger la ventana
         grid_frame.columnconfigure(0, weight=0, minsize=40)  
         grid_frame.columnconfigure(1, weight=1)  
         grid_frame.columnconfigure(2, weight=0, minsize=30)  
@@ -1749,7 +1889,6 @@ class PokemonFinderNLP:
         grid_frame.columnconfigure(4, weight=0, minsize=40)  
 
         stats_keys = ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]
-        # NUEVO: Nombres más cortos y agradables para la grilla central
         stats_display = {"HP": "HP", "Attack": "Atk", "Defense": "Def", "Sp. Atk": "SpA", "Sp. Def": "SpD", "Speed": "Spe"}
         
         rival_total = 0
@@ -1794,13 +1933,11 @@ class PokemonFinderNLP:
                 btn_minus = tk.Button(rival_val_frame, text="-", bg="#e94560" if is_minus else "#252538", fg="white", font=("Arial", 7, "bold"), width=1, relief="flat", cursor="hand2", command=lambda s=stat_name: self._set_nature(s, "minus", is_rival=True))
                 btn_minus.pack(side="left", padx=1)
 
-            # NUEVO: Quitado width fijo que rompía UI al colapsar
             tk.Label(rival_val_frame, text=str(rival_mod) if self.current_base_stats else "-", fg=rival_fg, bg="#16213e", font=("Arial", 9, "bold"), anchor="e").pack(side="left", padx=2)
 
             rival_canvas = tk.Canvas(grid_frame, height=14, bg="#1a1a2e", highlightthickness=0)
             rival_canvas.grid(row=i, column=1, padx=2, pady=2, sticky="ew")
 
-            # NUEVO: Reflejando la abreviación y menor padding horizontal
             tk.Label(grid_frame, text=stats_display[stat_name], fg="#a0a0c0", bg="#16213e", font=("Arial", 8, "bold"), width=4, anchor="center").grid(row=i, column=2, padx=1, pady=2)
 
             our_canvas = tk.Canvas(grid_frame, height=14, bg="#1a1a2e", highlightthickness=0)
@@ -1920,18 +2057,36 @@ class PokemonFinderNLP:
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
                 api_types = [t['type']['name'] for t in data['types']]
-                
                 stats_data = {s['stat']['name']: s['base_stat'] for s in data['stats']}
                 
-                self.root.after(0, lambda: self._sync_calculator_with_search(api_types))
+                # Obtener lista de formas alternativas/variantes
+                forms_list = []
+                species_url = data.get('species', {}).get('url')
+                if species_url:
+                    try:
+                        req_sp = urllib.request.Request(species_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req_sp, timeout=4) as resp_sp:
+                            sp_data = json.loads(resp_sp.read().decode())
+                            varieties = sp_data.get('varieties', [])
+                            if len(varieties) > 1:
+                                sp_name = sp_data.get('name', '')
+                                for var in varieties:
+                                    v_name = var['pokemon']['name']
+                                    label = self._format_form_label(v_name, sp_name)
+                                    forms_list.append({"label": label, "api_name": v_name})
+                    except Exception as e_sp:
+                        print(f"No se pudieron consultar variedades: {e_sp}")
+
+                self.root.after(0, lambda: self._sync_calculator_with_search(api_types, forms_list))
                 self.root.after(0, lambda: self._sync_stats_with_search(stats_data, name))
         except Exception as e:
             print(f"No se pudieron obtener los tipos para '{name}': {e}")
+            self.root.after(0, lambda: self.status_var.set(f"⚠️ Datos no encontrados para '{name}'."))
 
     def _search_pokemon(self, name):
         if not name: return
+        self.is_capturing = False # Liberar el flag de captura
         
-        # FIX: Evitamos traer la calculadora al frente bruscamente si el programa principal está minimizado.
         if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
             if self.root.state() != 'iconic':
                 self.root.after(0, self._open_type_calculator)
@@ -1942,7 +2097,7 @@ class PokemonFinderNLP:
             self.status_var.set(f"✅ Tipos de {name.capitalize()} leídos en la API.")
             return
 
-        url_name = re.sub(r'[^a-z0-9]', '', name.lower()) 
+        url_name = re.sub(r'[^a-z0-9\-]', '', name.lower().replace(" ", "-")) 
         url = f"https://dex.pokemonshowdown.com/pokemon/{url_name}"
         
         try: 
@@ -1950,7 +2105,7 @@ class PokemonFinderNLP:
                 self.viewer_httpd.current_url = url
                 
                 if getattr(self, 'viewer_opened', False):
-                    if time.time() - self.viewer_httpd.last_ping > 5:
+                    if time.time() - self.viewer_httpd.last_ping > 120:
                         self.viewer_opened = False
                 
                 if not getattr(self, 'viewer_opened', False):
