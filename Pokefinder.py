@@ -99,6 +99,35 @@ class PokemonFinderNLP:
         self.our_nature_modifiers = {"plus": None, "minus": None}   # Naturaleza Nuestro
         self.current_forms = []       # Formas alternativas
         
+        # --- MAPEO DE PARADOJAS (ESPAÑOL -> INGLÉS) ---
+        self.spanish_mappings = {
+            "ferropuas": "iron-thorns",
+            "ferropúas": "iron-thorns",
+            "colmilargo": "great-tusk",
+            "colalocrea": "scream-tail",
+            "furioseta": "brute-bonnet",
+            "melenaleteo": "flutter-mane",
+            "reptalada": "slither-wing",
+            "pelarena": "sandy-shocks",
+            "bramaluna": "roaring-moon",
+            "ferrodada": "iron-treads",
+            "ferrosaco": "iron-bundle",
+            "ferropalmas": "iron-hands",
+            "ferrocuello": "iron-jugulis",
+            "ferropolilla": "iron-moth",
+            "ferropaladin": "iron-valiant",
+            "ferropaladín": "iron-valiant",
+            "ondulagua": "walking-wake",
+            "ferroverdor": "iron-leaves",
+            "electrofuria": "raging-bolt",
+            "flamariete": "gouging-fire",
+            "ferrotestuz": "iron-crown",
+            "ferromole": "iron-boulder",
+            "codigocero": "type-null",
+            "código cero": "type-null",
+            "codigo cero": "type-null"
+        }
+        
         self.root.resizable(False, False)
         self.root.configure(bg="#1a1a2e")
         self.root.attributes("-topmost", True)
@@ -1138,13 +1167,15 @@ class PokemonFinderNLP:
                     cfg = f"--oem 3 --psm {psm} -l eng"
                     text = pytesseract.image_to_string(variant_img, config=cfg).strip()
                     
-                    clean_display = re.sub(r'[^a-zA-Z0-9\s]', '', text)
+                    # CORRECCIÓN DE REGEX: Permitimos tildes y eñes
+                    clean_display = re.sub(r'[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ]', '', text)
                     clean_display = " ".join(clean_display.split())
                     
                     if len(clean_display) > len(full_text_detected):
                         full_text_detected = clean_display 
                         
-                    merged_word = re.sub(r'[^a-zA-Z]', '', text.lower())
+                    # CORRECCIÓN DE REGEX: Permitimos tildes y eñes
+                    merged_word = re.sub(r'[^a-zA-ZáéíóúñÑ]', '', text.lower())
                     
                     if merged_word in self.custom_fixes: 
                         if self.custom_fixes[merged_word] not in found_pokemon_list:
@@ -1154,7 +1185,8 @@ class PokemonFinderNLP:
                             if len(poke) >= 3 and poke in merged_word and poke not in found_pokemon_list:
                                 found_pokemon_list.append(poke)
                     
-                    clean_text = re.sub(r'[^a-zA-Z\s]', '', text.lower())
+                    # CORRECCIÓN DE REGEX: Permitimos tildes y eñes
+                    clean_text = re.sub(r'[^a-zA-Z\sáéíóúñÑ]', '', text.lower())
                     for w in clean_text.split():
                         if w in ignore_words or len(w) < 4: 
                             continue
@@ -1171,7 +1203,8 @@ class PokemonFinderNLP:
             if found_pokemon_list: break
 
         self.last_full_text = full_text_detected
-        self.last_raw_clean = re.sub(r'[^a-zA-Z]', '', full_text_detected.lower())
+        # CORRECCIÓN DE REGEX: Permitimos tildes y eñes
+        self.last_raw_clean = re.sub(r'[^a-zA-ZáéíóúñÑ]', '', full_text_detected.lower())
 
         display_str = " ".join(full_text_detected.split())
         if len(display_str) > 55:
@@ -1233,7 +1266,8 @@ class PokemonFinderNLP:
         
         if manual_poke:
             manual_poke = manual_poke.lower().strip()
-            raw_clean = re.sub(r'[^a-zA-Z]', '', full_text.lower())
+            # CORRECCIÓN DE REGEX: Permitimos tildes y eñes
+            raw_clean = re.sub(r'[^a-zA-ZáéíóúñÑ]', '', full_text.lower())
             
             if raw_clean: 
                 self.custom_fixes[raw_clean] = manual_poke
@@ -1768,13 +1802,17 @@ class PokemonFinderNLP:
             return
             
         self.rival_name = name.capitalize() if name else "Rival"
+        
+        # --- FIX: Extraemos las estadísticas del formato correcto de la API ---
+        stats = {s['stat']['name']: s['base_stat'] for s in stats_data.get('stats', [])}
+        
         self.current_base_stats = {
-            "HP": stats_data.get("hp", 0),
-            "Attack": stats_data.get("attack", 0),
-            "Defense": stats_data.get("defense", 0),
-            "Sp. Atk": stats_data.get("special-attack", 0),
-            "Sp. Def": stats_data.get("special-defense", 0),
-            "Speed": stats_data.get("speed", 0)
+            "HP": stats.get("hp", 0),
+            "Attack": stats.get("attack", 0),
+            "Defense": stats.get("defense", 0),
+            "Sp. Atk": stats.get("special-attack", 0),
+            "Sp. Def": stats.get("special-defense", 0),
+            "Speed": stats.get("speed", 0)
         }
         self.nature_modifiers = {"plus": None, "minus": None} 
         
@@ -2034,6 +2072,13 @@ class PokemonFinderNLP:
                         self.pokemon_ids[clean_name] = poke_id
                         
                     self.pokemon_ids[original_name] = poke_id
+
+            # --- CORRECCIÓN: Ahora utilizamos el mapeo global de la clase ---
+            for sp_name, eng_name in self.spanish_mappings.items():
+                self.known_pokemon.add(sp_name)
+                if eng_name in self.pokemon_ids:
+                    self.pokemon_ids[sp_name] = self.pokemon_ids[eng_name]
+            # --------------------------------------------------------------------------
                 
             for poke in self.custom_fixes.values():
                 self.known_pokemon.add(poke.lower())
@@ -2067,61 +2112,65 @@ class PokemonFinderNLP:
             
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
-                api_types = [t['type']['name'] for t in data['types']]
-                stats_data = {s['stat']['name']: s['base_stat'] for s in data['stats']}
                 
-                # Obtener lista de formas alternativas/variantes
+                api_types = [t['type']['name'] for t in data['types']]
+                
+                # Extraer las formas alternativas para los botones
                 forms_list = []
-                species_url = data.get('species', {}).get('url')
-                if species_url:
-                    try:
-                        req_sp = urllib.request.Request(species_url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req_sp, timeout=4) as resp_sp:
-                            sp_data = json.loads(resp_sp.read().decode())
-                            varieties = sp_data.get('varieties', [])
-                            if len(varieties) > 1:
-                                sp_name = sp_data.get('name', '')
-                                for var in varieties:
-                                    v_name = var['pokemon']['name']
-                                    label = self._format_form_label(v_name, sp_name)
-                                    forms_list.append({"label": label, "api_name": v_name})
-                    except Exception as e_sp:
-                        print(f"No se pudieron consultar variedades: {e_sp}")
-
+                try:
+                    species_url = data['species']['url']
+                    req_sp = urllib.request.Request(species_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req_sp, timeout=5) as resp_sp:
+                        sp_data = json.loads(resp_sp.read().decode())
+                        for var in sp_data.get('varieties', []):
+                            v_name = var['pokemon']['name']
+                            # Solo añadimos si la forma es diferente a la que ya estamos consultando
+                            if v_name != data['name']:
+                                lbl = self._format_form_label(v_name, sp_data['name'])
+                                forms_list.append({"label": lbl, "api_name": v_name})
+                except Exception:
+                    pass
+                    
                 self.root.after(0, lambda: self._sync_calculator_with_search(api_types, forms_list))
-                self.root.after(0, lambda: self._sync_stats_with_search(stats_data, name))
+                self.root.after(0, lambda: self._sync_stats_with_search(data, name))
+                
         except Exception as e:
-            print(f"No se pudieron obtener los tipos para '{name}': {e}")
-            self.root.after(0, lambda: self.status_var.set(f"⚠️ Datos no encontrados para '{name}'."))
+            print(f"Error al sincronizar tipos y stats en _fetch_and_sync_types: {e}")
 
     def _search_pokemon(self, name):
-        if not name: return
-        self.is_capturing = False # Liberar el flag de captura
+        if not name: 
+            return
+            
+        self.status_var.set(f"Buscando a {name.capitalize()}...")
         
-        if hasattr(self, 'calc_win') and self.calc_win.winfo_exists():
-            if self.root.state() != 'iconic':
-                self.root.after(0, self._open_type_calculator)
-        
+        # 1. Actualizar la calculadora y stats en la interfaz gráfica
         threading.Thread(target=self._fetch_and_sync_types, args=(name,), daemon=True).start()
         
-        if self.user_settings.get("silent_mode", False):
-            self.status_var.set(f"✅ Tipos de {name.capitalize()} leídos en la API.")
-            return
-
-        url_name = re.sub(r'[^a-z0-9\-]', '', name.lower().replace(" ", "-")) 
-        url = f"https://dex.pokemonshowdown.com/pokemon/{url_name}"
-        
-        # CORRECCIÓN: Método de apertura del navegador completado para que funcione el visor de la pestaña reutilizable
-        try: 
+        # 2. Lógica para "ir a la página pokemon" si el modo silencioso está apagado
+        if not self.user_settings.get("silent_mode", False):
+            raw_name = name.lower().strip()
+            
+            # --- FIX: Convertimos los nombres Paradoja en español a inglés para Showdown ---
+            if raw_name in self.spanish_mappings:
+                raw_name = self.spanish_mappings[raw_name]
+                
+            api_format = raw_name.replace(" ", "-")
+            
+            # Formamos la URL objetivo en la Pokedex de Showdown
+            target_url = f"https://dex.pokemonshowdown.com/pokemon/{api_format}"
+            
+            # Si quiere reusar la pestaña y tenemos el visor local activado
             if self.user_settings.get("reuse_tab", True) and getattr(self, 'viewer_httpd', None):
-                self.viewer_httpd.current_url = url
-                if time.time() - self.viewer_httpd.last_ping > 5:
+                self.viewer_httpd.current_url = target_url
+                
+                # Chequeamos si la pestaña del visor no responde (más de 4 segundos sin hacer 'ping')
+                # y en ese caso la abrimos de nuevo
+                if time.time() - self.viewer_httpd.last_ping > 4:
                     webbrowser.open(f"http://localhost:{self.viewer_port}/viewer")
             else:
-                webbrowser.open(url)
-        except Exception as e:
-            print(f"Error abriendo web: {e}")
-            webbrowser.open(url)
+                # Si no quiere reusar pestaña o el visor no cargó, lo abrimos normal en el navegador
+                webbrowser.open(target_url)
+
 
 if __name__ == "__main__":
     PokemonFinderNLP()
