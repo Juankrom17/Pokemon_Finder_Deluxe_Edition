@@ -231,11 +231,15 @@ class PokemonFinderNLP:
         function ping() {
             fetch('/ping', {cache: "no-store"}).catch(e => {});
         }
-        setInterval(check, 1000);
-        setInterval(ping, 2000);
+        // SOLUCIÓN DEFINITIVA DE REUTILIZACIÓN: Avisamos a Python justo cuando se cierra la pestaña
+        window.addEventListener('beforeunload', function() {
+            navigator.sendBeacon('/close');
+        });
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden) { ping(); check(); }
         });
+        setInterval(check, 1000);
+        setInterval(ping, 2000);
         check();
         ping();
     </script>
@@ -254,6 +258,17 @@ class PokemonFinderNLP:
                 else:
                     req.send_response(404)
                     req.end_headers()
+                    
+            def do_POST(req):
+                # Recibe el aviso de cierre de la pestaña web
+                if req.path == '/close':
+                    req.server.last_ping = 0
+                    req.send_response(200)
+                    req.end_headers()
+                else:
+                    req.send_response(404)
+                    req.end_headers()
+
             def log_message(self, format, *args):
                 pass
                 
@@ -1630,22 +1645,29 @@ class PokemonFinderNLP:
         for widget in self.forms_container.winfo_children():
             widget.destroy()
 
-        if not self.current_forms or len(self.current_forms) <= 1:
+        # Si no hay formas alternativas, ocultamos la zona.
+        if not self.current_forms:
             self.forms_container.grid_remove()
             return
 
         self.forms_container.grid()
         tk.Label(self.forms_container, text="⚡ Formas / Variantes:", fg="#ffdd88", bg="#1a1a2e", font=("Arial", 8, "bold")).pack(anchor="w", pady=(0, 2))
         
-        buttons_frame = tk.Frame(self.forms_container, bg="#1a1a2e")
-        buttons_frame.pack(fill="x")
+        # SOLUCIÓN DE INTERFAZ: En vez de botones al lado que colapsan todo, armamos un Dropdown para las formas
+        options = [f["label"] for f in self.current_forms]
+        
+        selected_var = tk.StringVar(value="Seleccionar variante...")
+        
+        def on_form_select(choice):
+            for f in self.current_forms:
+                if f["label"] == choice:
+                    self._search_pokemon(f["api_name"])
+                    break
 
-        for form in self.current_forms:
-            lbl = form["label"]
-            api_name = form["api_name"]
-            btn = tk.Button(buttons_frame, text=lbl, bg="#252538", fg="#4ade80", font=("Arial", 8, "bold"), relief="flat", cursor="hand2", padx=5, pady=2,
-                            command=lambda a=api_name: self._search_pokemon(a))
-            btn.pack(side="left", padx=2, pady=2)
+        dropdown = tk.OptionMenu(self.forms_container, selected_var, *options, command=on_form_select)
+        dropdown.config(bg="#252538", fg="#4ade80", activebackground="#e94560", activeforeground="white", highlightthickness=0, font=("Arial", 8, "bold"), bd=0)
+        dropdown["menu"].config(bg="#252538", fg="white")
+        dropdown.pack(fill="x", padx=5, pady=2)
 
     def _format_form_label(self, var_name, species_name):
         if species_name and var_name.startswith(species_name + "-"):
@@ -1803,7 +1825,6 @@ class PokemonFinderNLP:
             
         self.rival_name = name.capitalize() if name else "Rival"
         
-        # --- FIX: Extraemos las estadísticas del formato correcto de la API ---
         stats = {s['stat']['name']: s['base_stat'] for s in stats_data.get('stats', [])}
         
         self.current_base_stats = {
@@ -1837,7 +1858,6 @@ class PokemonFinderNLP:
                 api_format = raw_name.replace(" ", "-")
                 clean_name = self._clean_api_name(api_format)
                 
-                # CORRECCIÓN: Priorizamos api_format primero para que cargue estadísticas de variantes correctamente
                 poke_id = self.pokemon_ids.get(api_format) or self.pokemon_ids.get(clean_name) or self.pokemon_ids.get(raw_name) or re.sub(r'[^a-z0-9\-]', '', api_format)
                 
                 url = f"https://pokeapi.co/api/v2/pokemon/{poke_id}"
@@ -2067,18 +2087,15 @@ class PokemonFinderNLP:
                     
                     poke_id = p['url'].strip('/').split('/')[-1]
                     
-                    # CORRECCIÓN: Guardamos tanto la forma base como la variación exacta en el diccionario
                     if clean_name not in self.pokemon_ids:
                         self.pokemon_ids[clean_name] = poke_id
                         
                     self.pokemon_ids[original_name] = poke_id
 
-            # --- CORRECCIÓN: Ahora utilizamos el mapeo global de la clase ---
             for sp_name, eng_name in self.spanish_mappings.items():
                 self.known_pokemon.add(sp_name)
                 if eng_name in self.pokemon_ids:
                     self.pokemon_ids[sp_name] = self.pokemon_ids[eng_name]
-            # --------------------------------------------------------------------------
                 
             for poke in self.custom_fixes.values():
                 self.known_pokemon.add(poke.lower())
@@ -2097,7 +2114,6 @@ class PokemonFinderNLP:
             
             poke_id = None
             
-            # CORRECCIÓN: Priorizamos 'api_format' para que cuando pidamos un 'alola' o 'galar', lo busque exactamente así
             if api_format in self.pokemon_ids:
                 poke_id = self.pokemon_ids[api_format]
             elif clean_name in self.pokemon_ids:
@@ -2115,8 +2131,11 @@ class PokemonFinderNLP:
                 
                 api_types = [t['type']['name'] for t in data['types']]
                 
-                # Extraer las formas alternativas para los botones
+                # --- SOLUCIÓN PARA RECOLECTAR TODAS LAS FORMAS ---
                 forms_list = []
+                added_forms = set()
+                
+                # 1. Obtenemos formas funcionales (Megas, Formas Regionales, Gmax)
                 try:
                     species_url = data['species']['url']
                     req_sp = urllib.request.Request(species_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -2124,12 +2143,25 @@ class PokemonFinderNLP:
                         sp_data = json.loads(resp_sp.read().decode())
                         for var in sp_data.get('varieties', []):
                             v_name = var['pokemon']['name']
-                            # Solo añadimos si la forma es diferente a la que ya estamos consultando
-                            if v_name != data['name']:
+                            if v_name != data['name'] and v_name not in added_forms:
                                 lbl = self._format_form_label(v_name, sp_data['name'])
                                 forms_list.append({"label": lbl, "api_name": v_name})
+                                added_forms.add(v_name)
                 except Exception:
                     pass
+                
+                # 2. Obtenemos formas estéticas o de objetos (Pikachu con gorra, Arceus placas, Alcremie)
+                try:
+                    for form in data.get('forms', []):
+                        f_name = form['name']
+                        if f_name != data['name'] and f_name not in added_forms:
+                            if not f_name: continue
+                            lbl = self._format_form_label(f_name, data['species']['name'])
+                            forms_list.append({"label": lbl, "api_name": f_name})
+                            added_forms.add(f_name)
+                except Exception:
+                    pass
+                # ----------------------------------------------------
                     
                 self.root.after(0, lambda: self._sync_calculator_with_search(api_types, forms_list))
                 self.root.after(0, lambda: self._sync_stats_with_search(data, name))
@@ -2143,34 +2175,37 @@ class PokemonFinderNLP:
             
         self.status_var.set(f"Buscando a {name.capitalize()}...")
         
-        # 1. Actualizar la calculadora y stats en la interfaz gráfica
         threading.Thread(target=self._fetch_and_sync_types, args=(name,), daemon=True).start()
         
-        # 2. Lógica para "ir a la página pokemon" si el modo silencioso está apagado
         if not self.user_settings.get("silent_mode", False):
             raw_name = name.lower().strip()
             
-            # --- FIX: Convertimos los nombres Paradoja en español a inglés para Showdown ---
             if raw_name in self.spanish_mappings:
                 raw_name = self.spanish_mappings[raw_name]
                 
             api_format = raw_name.replace(" ", "-")
             
-            # Formamos la URL objetivo en la Pokedex de Showdown
             target_url = f"https://dex.pokemonshowdown.com/pokemon/{api_format}"
             
-            # Si quiere reusar la pestaña y tenemos el visor local activado
             if self.user_settings.get("reuse_tab", True) and getattr(self, 'viewer_httpd', None):
                 self.viewer_httpd.current_url = target_url
                 
-                # Chequeamos si la pestaña del visor no responde (más de 4 segundos sin hacer 'ping')
-                # y en ese caso la abrimos de nuevo
-                if time.time() - self.viewer_httpd.last_ping > 4:
+                # Aumentamos enormemente el tiempo de gracia a 15 segundos porque
+                # con la nueva función sendBeacon sabemos si se cerró exactamente o no.
+                if time.time() - self.viewer_httpd.last_ping > 15:
                     webbrowser.open(f"http://localhost:{self.viewer_port}/viewer")
             else:
-                # Si no quiere reusar pestaña o el visor no cargó, lo abrimos normal en el navegador
                 webbrowser.open(target_url)
 
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
 if __name__ == "__main__":
-    PokemonFinderNLP()
+    if is_admin():
+        PokemonFinderNLP()
+    else:
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        sys.exit()
